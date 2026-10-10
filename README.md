@@ -1,21 +1,10 @@
-<div align="center">
-
-# 🧠 Codebase Q&A RAG
+# RepoGPT
 
 ### Stop reading code. Start asking it questions.
 
 Paste any GitHub repository URL and have a real conversation with it — architecture,
 data flow, "where does X happen", "how do I add Y". Retrieval-augmented generation
 built on **LlamaIndex**, **Nebius AI embeddings**, and **DeepSeek-V3**.
-
-[![Project Page](https://img.shields.io/badge/Project_Page-Live-7C5CFF?style=for-the-badge&logo=githubpages&logoColor=white)](https://tirth1263.github.io/Codebase-QnA-RAG/)
-[![Python](https://img.shields.io/badge/Python-3.10+-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
-[![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?style=for-the-badge&logo=streamlit&logoColor=white)](https://streamlit.io)
-[![License: MIT](https://img.shields.io/badge/License-MIT-22C55E?style=for-the-badge)](LICENSE)
-
-</div>
-
----
 
 ## The problem
 
@@ -198,22 +187,3 @@ Once a repo is indexed, these give genuinely useful answers:
 - [ ] Multi-repo indexing to answer questions across a whole organisation
 
 ---
-
-## 🙏 Credits
-
-Inspired by the **Chat with Code** example from
-[Arindam200/awesome-ai-apps](https://github.com/Arindam200/awesome-ai-apps/tree/main/rag_apps/chat_with_code),
-substantially reworked here with cached indexing, streaming responses, source
-citations, in-app credential entry, broader language coverage and tunable retrieval.
-
-## 📄 License
-
-[MIT](LICENSE) — use it, fork it, ship it.
-
----
-
-<div align="center">
-
-Built by **[Tirth Rank](https://github.com/tirth1263)** · ⭐ Star the repo if it helped you
-
-</div>
