@@ -271,7 +271,7 @@ def render_sources(source_nodes) -> None:
 
     with st.expander(f"Sources ({len(paths)} files)"):
         for path in paths:
-            st.markdown(f"- \`{path}\`")
+            st.markdown(f"- {path}")
 
 
 def main() -> None:
