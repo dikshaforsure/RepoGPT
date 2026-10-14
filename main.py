@@ -3,7 +3,7 @@ RepoGPT — chat with a public GitHub repository.
 
 Pipeline:
 GitHub repository -> LlamaIndex reader -> local Hugging Face embeddings
--> in-memory vector index -> top-k retrieval -> Gemini answer synthesis.
+-> in-memory vector index -> top-k retrieval -> Groq answer synthesis.
 """
 
 import os
@@ -15,14 +15,14 @@ import streamlit as st
 from dotenv import load_dotenv
 from llama_index.core import PromptTemplate, Settings, VectorStoreIndex
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
-from llama_index.llms.google_genai import GoogleGenAI
+from llama_index.llms.groq import Groq
 from llama_index.readers.github import GithubClient, GithubRepositoryReader
 
 nest_asyncio.apply()
 load_dotenv()
 
-# Change this in .env if your Gemini API account uses a different available model.
-LLM_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+# Change this in .env if you use another model available to your Groq account.
+LLM_MODEL = os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
 # Runs locally after download; no embedding API key is required.
 EMBED_MODEL = os.getenv("EMBED_MODEL", "BAAI/bge-small-en-v1.5")
 
@@ -86,12 +86,12 @@ def get_embedding_model() -> HuggingFaceEmbedding:
     return HuggingFaceEmbedding(model_name=EMBED_MODEL)
 
 
-def configure_models(gemini_api_key: str) -> None:
-    if not gemini_api_key:
-        raise ValueError("Add your Gemini API key in the sidebar or .env file.")
-    Settings.llm = GoogleGenAI(
+def configure_models(groq_api_key: str) -> None:
+    if not groq_api_key:
+        raise ValueError("Add your Groq API key in the sidebar or .env file.")
+    Settings.llm = Groq(
         model=LLM_MODEL,
-        api_key=gemini_api_key,
+        api_key=groq_api_key,
         temperature=0.1,
     )
     Settings.embed_model = get_embedding_model()
@@ -115,9 +115,9 @@ def load_repository(github_token: str, owner: str, repo: str, branch: str):
 
 
 @st.cache_resource(show_spinner=False)
-def build_index(_docs, gemini_api_key: str, cache_key: str) -> VectorStoreIndex:
+def build_index(_docs, groq_api_key: str, cache_key: str) -> VectorStoreIndex:
     """Embed repository documents and cache the in-memory vector index."""
-    configure_models(gemini_api_key)
+    configure_models(groq_api_key)
     return VectorStoreIndex.from_documents(_docs, show_progress=False)
 
 
@@ -130,10 +130,10 @@ def render_sidebar() -> None:
     with st.sidebar:
         st.header("Setup")
         st.text_input(
-            "Gemini API key",
+            "Groq API key",
             type="password",
-            key="gemini_key",
-            help="Get a key from https://aistudio.google.com/api-keys.",
+            key="groq_key",
+            help="Create a key at https://console.groq.com/keys.",
         )
         st.text_input(
             "GitHub token",
@@ -177,19 +177,19 @@ def render_sidebar() -> None:
         st.divider()
         st.caption(
             "Built with Streamlit, LlamaIndex, local Hugging Face embeddings, "
-            "and the Gemini API."
+            "and the Groq API."
         )
 
 
 def index_repository(repo_url: str) -> None:
-    gemini_key = get_secret(st.session_state.gemini_key, "GEMINI_API_KEY")
+    groq_key = get_secret(st.session_state.groq_key, "GROQ_API_KEY")
     github_token = get_secret(st.session_state.github_key, "GITHUB_TOKEN")
 
     if not repo_url.strip():
         st.warning("Paste a GitHub repository URL first.")
         return
-    if not gemini_key:
-        st.error("Add your Gemini API key in the sidebar or .env file.")
+    if not groq_key:
+        st.error("Add your Groq API key in the sidebar or .env file.")
         return
     if not github_token:
         st.error(
@@ -220,12 +220,12 @@ def index_repository(repo_url: str) -> None:
             f"Creating local embeddings for {len(docs)} files. "
             "The first run may download the embedding model…"
         ):
-            index = build_index(docs, gemini_key, f"{owner}/{repo}@{branch}")
+            index = build_index(docs, groq_key, f"{owner}/{repo}@{branch}")
 
     except Exception as exc:
         st.error(
             "Repository indexing failed. Check the GitHub token, repository URL, "
-            "network connection, Gemini API key/model access, and terminal logs. "
+            "network connection, Groq API key/model access, and terminal logs. "
             f"Details: {exc}"
         )
         return
@@ -239,9 +239,9 @@ def index_repository(repo_url: str) -> None:
 
 
 def answer(question: str) -> tuple[str, list]:
-    """Retrieve relevant chunks and stream a Gemini-generated answer."""
-    gemini_key = get_secret(st.session_state.gemini_key, "GEMINI_API_KEY")
-    configure_models(gemini_key)
+    """Retrieve relevant chunks and stream a Groq-generated answer."""
+    groq_key = get_secret(st.session_state.groq_key, "GROQ_API_KEY")
+    configure_models(groq_key)
 
     query_engine = st.session_state.index.as_query_engine(
         similarity_top_k=st.session_state.top_k,
@@ -288,7 +288,7 @@ def main() -> None:
         "doc_count": 0,
         "index_seconds": 0.0,
         "top_k": 5,
-        "gemini_key": "",
+        "groq_key": "",
         "github_key": "",
     }
     for key, value in defaults.items():
@@ -297,14 +297,14 @@ def main() -> None:
     st.title("🧠 RepoGPT — Codebase Q&A")
     st.caption(
         "Ask questions about a GitHub repository in plain English. "
-        "Uses LlamaIndex retrieval, local Hugging Face embeddings, and Gemini."
+        "Uses LlamaIndex retrieval, local Hugging Face embeddings, and Groq."
     )
 
     render_sidebar()
 
     if st.session_state.index is None:
         st.info(
-            "**Get started:** add your Gemini API key and GitHub token in the sidebar, "
+            "**Get started:** add your Groq API key and GitHub token in the sidebar, "
             "paste a repository URL, then click **Index repository**."
         )
         st.markdown(
@@ -346,7 +346,7 @@ def main() -> None:
                 )
             except Exception as exc:
                 st.error(
-                    "The question could not be answered. Check your Gemini API key, "
+                    "The question could not be answered. Check your Groq API key, "
                     "model access, quota, and network connection. "
                     f"Details: {exc}"
                 )
