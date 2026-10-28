@@ -1,7 +1,8 @@
-streamlit>=1.40.0
+streamlit==1.50.0
 python-dotenv>=1.0.0
 nest-asyncio>=1.6.0
 llama-index>=0.12.0
 llama-index-llms-groq
 llama-index-embeddings-huggingface
 llama-index-readers-github>=0.6.0
+nltk>=3.9.4,<3.10.0
