@@ -13,6 +13,24 @@ from urllib.parse import unquote, urlparse
 import nest_asyncio
 import streamlit as st
 from dotenv import load_dotenv
+
+# Keep LlamaIndex/NLTK corpora outside site-packages. NLTK 3.10+ can
+# reject files in the package's bundled cache due to stricter path checks.
+NLTK_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".nltk_data")
+os.environ.setdefault("NLTK_DATA", NLTK_DATA_DIR)
+
+import nltk
+
+os.makedirs(NLTK_DATA_DIR, exist_ok=True)
+for resource in ("stopwords", "punkt_tab"):
+    try:
+        nltk.data.find(
+            "corpora/stopwords" if resource == "stopwords" else "tokenizers/punkt_tab",
+            paths=[NLTK_DATA_DIR],
+        )
+    except LookupError:
+        if not nltk.download(resource, download_dir=NLTK_DATA_DIR, quiet=True):
+            raise RuntimeError(f"Could not download NLTK resource: {resource}")
 from llama_index.core import PromptTemplate, Settings, VectorStoreIndex
 from llama_index.embeddings.huggingface import HuggingFaceEmbedding
 from llama_index.llms.groq import Groq
