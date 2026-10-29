@@ -29,6 +29,7 @@
 - [21. Lesson 3: How Streamlit displays and remembers information](#21-lesson-3-how-streamlit-displays-and-remembers-information)
 - [22. Lesson 3 checkpoint assessment](#22-lesson-3-checkpoint-assessment)
 - [23. Lesson 3 checkpoint result](#23-lesson-3-checkpoint-result)
+- [24. Lesson 4 first checkpoint: parsing and ingestion](#24-lesson-4-first-checkpoint-parsing-and-ingestion)
 
 ## 1. Project in one minute
 
@@ -408,7 +409,7 @@ Update this table as each teaching session is completed. A topic should be marke
 | Repository structure and README | Reviewed | Current `main` branch tree and README inspected |
 | Product purpose and major component roles | Passed with corrections | Learner correctly explained GitHub, embeddings, LLM, Streamlit, and indexing vs answering; clarified in-memory index versus persistent vector database |
 | Application startup and function call graph | Passed (conceptual checkpoint) | Learner explained function definition vs call, identified `parse_github_url()` as a custom function, and corrected the entry-point execution order; next learn Streamlit reruns and session state |
-| Indexing workflow | Introduced, not yet demonstrated | Reteach from the product analogy, then trace URL → documents → searchable index |
+| Indexing workflow | In progress — high-level flow understood | Learner correctly distinguishes fetching documents from building an index; correct one URL-parsing detail (the branch is `develop`, not `tree`) before tracing the source code further |
 | Question-answering workflow | Introduced, not yet demonstrated | Explain question → relevant chunks → generated answer before introducing LlamaIndex terminology |
 | Session state and caching | Passed (conceptual checkpoint) | Learner correctly explained that state survives reruns, `setdefault` preserves an existing index, and Clear chat removes messages while leaving the index available; the app does not explicitly pass prior chat history to the query engine |
 | Embeddings and semantic similarity | Lesson started | Conceptual explanation added in Section 15; run and record the retrieval experiment before marking complete |
@@ -1147,6 +1148,30 @@ flowchart TD
 ~~~
 
 Next, learn what a **document** means in LlamaIndex, why RepoGPT filters file extensions, and how the GitHub reader returns repository content before the embedding/indexing step. The next checkpoint should ask the learner to explain this flow in their own words before moving on to embeddings or retrieval.
+
+---
+
+## 24. Lesson 4 first checkpoint: parsing and ingestion
+
+**Status: Partially passed (29 October 2026).** The learner understands the distinction between repository ingestion and index construction. Reinforce URL path parsing before proceeding into the reader implementation.
+
+### Response review
+
+1. **Owner, repository and branch — Partly correct.** For `https://github.com/example/my-project/tree/develop`, owner is `example` and repository is `my-project`. The branch is `develop`, not `tree`. In this URL format, `tree` is a structural path segment that signals the following path is the branch name.
+2. **Return value from `load_repository()` — Correct.** It returns document objects containing fetched repository content and metadata, rather than a finished vector index.
+3. **Why `build_index()` follows `load_repository()` — Correct conceptually.** Fetching files obtains the source text. `build_index()` then configures the embedding model and calls `VectorStoreIndex.from_documents(...)` so the content can be searched semantically.
+
+### Verified source behavior
+
+The current `parse_github_url()` implementation initializes the branch to `main`. If the path contains at least four segments and the third segment is `tree`, it joins all segments after `tree` as the branch name. This also supports branch names containing `/`. The function returns `(owner, repo, branch)`.
+
+The current `load_repository()` configures `GithubRepositoryReader` with the owner, repository, inclusion list of file extensions, and `concurrent_requests=5`; it returns `loader.load_data(branch=branch)`. The current `build_index()` calls `configure_models(groq_api_key)` and then `VectorStoreIndex.from_documents(_docs, show_progress=False)`.
+
+### Same-topic follow-up before advancing
+
+Ask the learner one question: In `https://github.com/example/my-project/tree/develop`, what is the branch name, and what role does the path segment `tree` play?
+
+Once this is clear, continue by examining the supported file-extension list and the `load_repository()` function line by line. Do not jump to embeddings or retrieval until the learner can trace URL → owner/repository/branch → fetched documents → index.
 
 ---
 
