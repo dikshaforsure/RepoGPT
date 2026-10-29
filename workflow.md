@@ -21,6 +21,8 @@
 - [13. Learning and verification log](#13-learning-and-verification-log)
 - [14. Topics to add as the deep dive continues](#14-topics-to-add-as-the-deep-dive-continues)
 - [15. Lesson 2: Embeddings and semantic retrieval](#15-lesson-2-embeddings-and-semantic-retrieval)
+- [16. Beginner-first intensive learning plan (8–10 hours)](#16-beginner-first-intensive-learning-plan-8-10-hours)
+- [17. Reteaching checkpoint: Lesson 1 is not yet complete](#17-reteaching-checkpoint-lesson-1-is-not-yet-complete)
 
 ## 1. Project in one minute
 
@@ -398,9 +400,9 @@ Update this table as each teaching session is completed. A topic should be marke
 | Topic | Status | Evidence / next action |
 |---|---|---|
 | Repository structure and README | Reviewed | Current `main` branch tree and README inspected |
-| Application startup and function call graph | Explained | Trace the guarded entry point, module startup and `main()` |
-| Indexing workflow | Explained | Validate URL → load docs → build index → save session state |
-| Question-answering workflow | Explained | Query engine → retrieval/synthesis → streaming → sources |
+| Application startup and function call graph | Needs reteaching | Introduce plain-language purpose, then trace the entry point only after the component roles are understood |
+| Indexing workflow | Introduced, not yet demonstrated | Reteach from the product analogy, then trace URL → documents → searchable index |
+| Question-answering workflow | Introduced, not yet demonstrated | Explain question → relevant chunks → generated answer before introducing LlamaIndex terminology |
 | Session state and caching | Initial review | Test cache behavior when repository content changes without changing URL/branch |
 | Embeddings and semantic similarity | Lesson started | Conceptual explanation added in Section 15; run and record the retrieval experiment before marking complete |
 | LlamaIndex documents, nodes, index and query engine | Pending deep dive | Inspect nodes/metadata and change retrieval settings |
@@ -536,6 +538,134 @@ Mark the embeddings/retrieval lesson complete only after you can:
 - explain top-k trade-offs;
 - run the experiment above and record what actually happened; and
 - verify at least one generated explanation against the original source.
+
+---
+
+## 16. Beginner-first intensive learning plan (8–10 hours)
+
+### Why this plan changes the teaching order
+
+The reader may know Python and core ML but may be unfamiliar with web-app frameworks, GitHub API readers, LlamaIndex, vector indexes and hosted LLM APIs. Start with the real-world problem and the job each component performs. Introduce framework names only after the underlying idea is clear.
+
+**Goal for this intensive session:** gain a connected, explainable understanding of this implementation, run meaningful experiments through the already-deployed app, and answer foundational project questions. Eight to ten hours can build strong project-specific understanding, but it cannot honestly guarantee mastery of every framework or replace follow-up coding and practice.
+
+No deployment or installation work is part of this plan because the application is already deployed and running.
+
+### Teaching pattern for every topic
+
+Each lesson should follow this sequence:
+1. **Plain-language idea:** explain the problem without framework jargon.
+2. **Everyday analogy:** use a concrete example.
+3. **RepoGPT mapping:** identify exactly where the idea appears in this repository.
+4. **Line-by-line walkthrough:** explain each relevant statement, input and output.
+5. **Observation or experiment:** run the deployed app or inspect a small code example.
+6. **Teach-back:** explain it in your own words before moving on.
+7. **Update this guide:** record the explanation and any observed result; label untested claims as unverified.
+
+Do not move on merely because a term sounds familiar. Move on when you can say what it means, why RepoGPT needs it, and where it appears in the source.
+
+### 9-hour schedule
+
+| Elapsed time | Topic | What to learn and do | Completion evidence |
+|---|---|---|---|
+| 00:00–00:35 | The product and the problem | What question the app answers; why source code is fetched; why an LLM alone is insufficient; what the user sees | Explain the product without mentioning library names |
+| 00:35–01:20 | Read a Python application | Module-level code, imports, functions, function calls, return values, exceptions, and the `__main__` guard | Trace the entry point from the last lines to `main()` |
+| 01:20–02:05 | Web UI and session state | What a web app is; Streamlit widgets; what happens after a button click; reruns; session state | Explain why `st.session_state` is used |
+| 02:05–02:45 | GitHub and ingestion | Repository, owner, branch, URL parsing, API/token, reader, allowed file extensions and returned documents | Explain how a URL becomes a collection of source documents |
+| 02:45–03:45 | Text chunks and embeddings | Documents versus chunks; pretrained embedding model; vector intuition; query embedding; similarity and top-k | Explain why related wording can sometimes retrieve a source chunk |
+| 03:45–04:45 | Index, retrieval and RAG | In-memory vector index; retrieval versus answer generation; what LlamaIndex is responsible for; the full data path | Draw the ingestion and question-answering flows unaided |
+| 04:45–05:00 | Break and recall | Step away briefly, then redraw the architecture from memory | Identify any confusing terms to revisit |
+| 05:00–05:45 | LLM, Groq and prompt | What an LLM does; API request; prompt/context/question; temperature; streamed output and source metadata | Explain why the embedding model and LLM are separate |
+| 05:45–06:35 | Main.py guided walkthrough | Read each function in execution order; annotate inputs, outputs and side effects; distinguish code written here from library calls | Walk through one question from UI to answer |
+| 06:35–07:25 | Experiments in the deployed app | Ask equivalent questions; compare source paths; vary top-k; verify claims against source | Record real observations rather than assumptions |
+| 07:25–08:10 | State, caching, errors and security | Session versus cache; index lifecycle; exception handling; credential boundaries; prompt-injection limitations | Explain at least three actual limitations |
+| 08:10–09:00 | Consolidation and interview practice | Use the glossary; answer project questions aloud; re-draw both pipelines; list uncertainties instead of bluffing | Give a 3–5 minute accurate explanation and answer follow-ups |
+
+If the fundamentals need more time, spend it on the concept that is unclear rather than rushing to finish every section. An optional additional hour can be used to start unit tests or reproduce a miniature local-file retrieval pipeline.
+
+### Plain-language component map
+
+~~~mermaid
+flowchart TD
+    A[Developer asks about a GitHub codebase] --> B[GitHub reader fetches supported files]
+    B --> C[Documents: the fetched file contents]
+    C --> D[Split text into smaller chunks]
+    D --> E[Embedding model turns chunks into numbers]
+    E --> F[Vector index makes the chunks searchable]
+    G[Developer's question] --> H[Question is represented as a vector]
+    H --> I[Find the most relevant chunks]
+    F --> I
+    I --> J[LLM receives the question and retrieved text]
+    J --> K[Streamlit displays the generated answer]
+    I --> L[Source paths help the developer verify it]
+~~~
+
+### Beginner glossary: understand the idea before memorizing the name
+
+| Term | Plain-language meaning | RepoGPT example |
+|---|---|---|
+| Web application | A program you interact with through a browser | The deployed RepoGPT UI |
+| UI / interface | The controls and output a user sees | URL field, key fields, slider and chat |
+| GitHub repository | A project folder and its version history hosted on GitHub | `dikshaforsure/RepoGPT` |
+| Branch | A named line of development in a repository | `main` |
+| API | A defined way for one program to request data or an operation from another | GitHub and Groq integrations |
+| Token (credential) | A secret string that grants specified access | `GITHUB_TOKEN`; distinct from an LLM's text token |
+| Reader / ingestion | Code that obtains input data and turns it into documents for later processing | `GithubRepositoryReader` and `load_repository()` |
+| Document | An input item containing text plus possibly metadata | A source file returned by the reader |
+| Chunk / node | A smaller text unit used for indexing/retrieval | A piece of a large source file |
+| Embedding | A numerical vector representing text | The vector generated for a code chunk |
+| Vector | An ordered list of numbers | A machine-usable representation of text |
+| Vector index | A searchable structure organizing vectors and associated nodes | `VectorStoreIndex` |
+| Retrieval | Selecting the best candidate source chunks for a question | Top-k search through the index |
+| LLM | A language model that generates text | The model accessed using Groq |
+| Prompt | Instructions plus input context sent to the language model | `QA_PROMPT` with context and question placeholders |
+| RAG | Retrieving relevant information before asking a model to generate an answer | RepoGPT's overall design |
+| Streaming | Displaying generated output gradually as it arrives | `st.write_stream(response.response_gen)` |
+| Session state | Values preserved for one user session across Streamlit reruns | `st.session_state.index` and `messages` |
+| Cache | Reusing a previously computed result/resource when cache rules match | `@st.cache_resource` |
+| Metadata | Information about the content, beyond its text | Source file path stored on a retrieved node |
+
+**Important ambiguity:** “token” can mean an API credential (such as `GITHUB_TOKEN`) or a piece of text processed by an LLM. They are entirely different things.
+
+## 17. Reteaching checkpoint: Lesson 1 is not yet complete
+
+The earlier workflow walkthrough introduced the right function names, but the learner has reported that the explanation was too framework-heavy. Therefore, the previous “explained” status must not be treated as demonstrated understanding.
+
+### Start with these four questions
+
+1. What does a developer give RepoGPT as input, and what does the app return?
+2. Why must the app fetch source code before answering questions about it?
+3. Why might an LLM give a less reliable answer if it has not been shown the relevant files?
+4. What is the difference between preparing the repository for search and answering a particular question?
+
+Do not require library terminology in the first attempt. A correct plain-language explanation is the first step; framework names and exact source lines come afterwards.
+
+### Understanding check: two distinct workflows
+
+~~~mermaid
+flowchart TD
+    A[Start with a GitHub URL] --> B[Prepare searchable repository index]
+    B --> C[Store index in runtime session]
+    C --> D[Receive a question]
+    D --> E[Find related source chunks]
+    E --> F[Ask the language model to explain them]
+    F --> G[Show the answer and source paths]
+~~~
+
+- **Indexing** prepares the material so it can be searched. It can take time, but it is not performed from scratch for every question when a usable index remains in session state.
+- **Question answering** searches that prepared material and generates an answer for the particular question.
+- The **source paths** are hints for checking the response against real code; they do not prove that every claim in the answer is correct.
+
+### Completion criteria for Lesson 1
+
+Mark the lesson complete only when the learner can:
+- explain the user journey in everyday language;
+- distinguish indexing from question answering;
+- identify the role of GitHub, embeddings, the vector index, the LLM and Streamlit at a high level;
+- follow the call path `main()` → `render_sidebar()` → `index_repository()` and, separately, `main()` → `answer()`;
+- explain the difference between session state and resource caching at a basic level.
+
+Until those checks are satisfied, reteach the concept using a simpler analogy and a smaller code example rather than adding more new terms.
 
 ---
 
