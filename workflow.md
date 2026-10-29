@@ -22,7 +22,8 @@
 - [14. Topics to add as the deep dive continues](#14-topics-to-add-as-the-deep-dive-continues)
 - [15. Lesson 2: Embeddings and semantic retrieval](#15-lesson-2-embeddings-and-semantic-retrieval)
 - [16. Beginner-first intensive learning plan (8–10 hours)](#16-beginner-first-intensive-learning-plan-8-10-hours)
-- [17. Reteaching checkpoint: Lesson 1 is not yet complete](#17-reteaching-checkpoint-lesson-1-is-not-yet-complete)
+- [17. Reteaching checkpoint: product model understood; execution model still to learn](#17-reteaching-checkpoint-product-model-understood-execution-model-still-to-learn)
+- [18. Lesson 3: How the Python application starts and runs](#18-lesson-3-how-the-python-application-starts-and-runs)
 
 ## 1. Project in one minute
 
@@ -400,7 +401,7 @@ Update this table as each teaching session is completed. A topic should be marke
 | Topic | Status | Evidence / next action |
 |---|---|---|
 | Repository structure and README | Reviewed | Current `main` branch tree and README inspected |
-| Application startup and function call graph | Needs reteaching | Introduce plain-language purpose, then trace the entry point only after the component roles are understood |
+| Product purpose and major component roles | Passed with corrections | Learner correctly explained GitHub, embeddings, LLM, Streamlit, and indexing vs answering; clarify in-memory index versus persistent vector database |\n| Application startup and function call graph | Current lesson | Teach module execution, function definitions/calls, and the `__main__` guard in plain language before tracing nested calls |
 | Indexing workflow | Introduced, not yet demonstrated | Reteach from the product analogy, then trace URL → documents → searchable index |
 | Question-answering workflow | Introduced, not yet demonstrated | Explain question → relevant chunks → generated answer before introducing LlamaIndex terminology |
 | Session state and caching | Initial review | Test cache behavior when repository content changes without changing URL/branch |
@@ -627,18 +628,17 @@ flowchart TD
 
 **Important ambiguity:** “token” can mean an API credential (such as `GITHUB_TOKEN`) or a piece of text processed by an LLM. They are entirely different things.
 
-## 17. Reteaching checkpoint: Lesson 1 is not yet complete
+## 17. Reteaching checkpoint: product model understood; execution model still to learn
 
-The earlier workflow walkthrough introduced the right function names, but the learner has reported that the explanation was too framework-heavy. Therefore, the previous “explained” status must not be treated as demonstrated understanding.
+The learner's first checkpoint answers showed a good grasp of RepoGPT's purpose, indexing versus answering, and the high-level roles of GitHub, the embedding model, the LLM and Streamlit. The next lessons should build on that understanding instead of repeating those definitions.
 
-### Start with these four questions
+### Checkpoint result and gentle corrections
 
-1. What does a developer give RepoGPT as input, and what does the app return?
-2. Why must the app fetch source code before answering questions about it?
-3. Why might an LLM give a less reliable answer if it has not been shown the relevant files?
-4. What is the difference between preparing the repository for search and answering a particular question?
+- **Why prepare the repository?** Correct core idea: prepare source text so the app can retrieve relevant information for future questions. Correction: the current implementation builds an **in-memory LlamaIndex vector index**, not a separately configured persistent vector database. LlamaIndex handles document processing and embedding/index construction; exact chunking defaults should be inspected rather than guessed.
+- **Indexing versus answering:** Correct. Indexing prepares searchable material; answering retrieves relevant pieces and uses an LLM to generate a response.
+- **Component roles:** Correct high-level mapping: GitHub supplies repository data; the embedding model represents text numerically; the LLM generates an explanation; Streamlit renders the interface.
 
-Do not require library terminology in the first attempt. A correct plain-language explanation is the first step; framework names and exact source lines come afterwards.
+The remaining gap is not the overall purpose; it is understanding how a Python application executes, how a button triggers function calls, and how Streamlit state survives script reruns. Teach those next, one concept at a time.
 
 ### Understanding check: two distinct workflows
 
@@ -666,6 +666,163 @@ Mark the lesson complete only when the learner can:
 - explain the difference between session state and resource caching at a basic level.
 
 Until those checks are satisfied, reteach the concept using a simpler analogy and a smaller code example rather than adding more new terms.
+
+---
+
+## 18. Lesson 3: How the Python application starts and runs
+
+**Prerequisite:** The learner understands RepoGPT's purpose, the distinction between indexing and answering, and the high-level component roles.
+
+**Goal:** Understand how Python enters `main.py`, why functions are defined, what a function call does, and how a UI action eventually calls the indexing or answering functions. Do not introduce embeddings or vector-search internals in this lesson.
+
+### 18.1 A simple mental model
+
+Think of a Python file as a written set of instructions. Python reads the file from top to bottom. Some lines run immediately; some lines define functions (named groups of instructions to run later). A function's body runs when the function is called.
+
+Analogy:
+- Writing a recipe is like defining a function.
+- Actually asking someone to follow the recipe is like calling the function.
+- A function can call another function to delegate part of the work.
+
+### 18.2 Definition versus call
+
+~~~python
+def say_hello():
+    print("Hello")
+
+print("Before the function call")
+say_hello()
+print("After the function call")
+~~~
+
+The output is:
+
+~~~text
+Before the function call
+Hello
+After the function call
+~~~
+
+When Python sees `def say_hello():`, it creates the function; it does **not** print `Hello` at that moment. The body runs when `say_hello()` is called.
+
+The parentheses are important: `say_hello` refers to the function object; `say_hello()` calls the function.
+
+### 18.3 The entry point at the bottom of main.py
+
+The current source ends with:
+
+~~~python
+if __name__ == "__main__":
+    main()
+~~~
+
+Plain-language meaning: when this file is being run as the main application script, call the function named `main`.
+
+It does not mean that `main()` is the first code Python executes. Module-level statements near the top of the file run first. In this app those statements include imports, loading environment settings, checking/downloading NLTK resources, defining constants, creating the prompt template, and defining functions. After Python reaches the guarded block, `main()` is called.
+
+### 18.4 Startup sequence diagram
+
+~~~mermaid
+flowchart TD
+    A[Python starts executing main.py] --> B[Run module-level statements]
+    B --> C[Load/configure runtime resources]
+    C --> D[Create constants and prompt]
+    D --> E[Define functions]
+    E --> F{Is this the main script?}
+    F -- Yes --> G[Call main()]
+    F -- No --> H[Do not call main from this guard]
+    G --> I[Configure Streamlit page and session defaults]
+    I --> J[Render title and sidebar]
+    J --> K{Does session state contain an index?}
+    K -- No --> L[Show introductory instructions and return]
+    K -- Yes --> M[Render chat history and chat input]
+~~~
+
+Some module-level actions happen interleaved with imports; the diagram groups them conceptually to make the execution order easier to learn.
+
+### 18.5 The main function call path
+
+The app has two separate interaction paths. Learn the names after understanding their purpose.
+
+~~~mermaid
+flowchart TD
+    A[main] --> B[render_sidebar]
+    B --> C{User clicks Index repository?}
+    C -- Yes --> D[index_repository]
+    D --> E[parse_github_url]
+    D --> F[load_repository]
+    D --> G[build_index]
+    G --> H[Save index and metadata in session state]
+    H --> I[st.rerun]
+    A --> J{User submits chat question?}
+    J -- Yes --> K[answer]
+    K --> L[query engine retrieves context and generates answer]
+    K --> M[Return answer and source nodes]
+    M --> N[render_sources and save assistant message]
+~~~
+
+This is a conceptual call map. The source's actual control flow and Streamlit reruns mean that a button click is processed during a script execution, and a successful indexing run triggers a new execution.
+
+### 18.6 Parameters, return values and side effects
+
+Take this simplified example:
+
+~~~python
+def add_numbers(a, b):
+    total = a + b
+    return total
+
+answer = add_numbers(2, 3)
+print(answer)
+~~~
+
+- `a` and `b` are parameters: named inputs to the function.
+- `2` and `3` are the arguments provided by this call.
+- `return total` sends a value back to the caller.
+- The caller stores the returned value in `answer`.
+
+In RepoGPT:
+- `parse_github_url(url)` receives a URL and returns the owner, repository and branch.
+- `load_repository(...)` receives the repository coordinates and credential and returns documents.
+- `build_index(...)` receives documents and returns an index object.
+- `answer(question)` receives the question and returns answer text and source nodes.
+- `index_repository(repo_url)` primarily coordinates work and changes session state; it does not return the index to its caller.
+
+Some functions also have **side effects**, which means they change or interact with something outside their returned value. Examples include displaying UI messages, requesting remote data, updating `st.session_state`, writing output and calling `st.rerun()`.
+
+### 18.7 What is an exception?
+
+An exception is Python's way of signaling that an operation failed or could not proceed normally. For example, parsing an unsupported URL raises `ValueError`. A nearby `try/except` can catch that error and show a helpful message rather than letting the failure terminate the current operation without explanation.
+
+In RepoGPT, the code validates many inputs before starting work. It also catches errors during indexing and answering. Error handling does not make the underlying failure disappear; it decides how the application responds to that failure.
+
+### 18.8 What is Streamlit rerunning?
+
+Streamlit commonly reruns the Python script after a user interacts with a widget. This differs from a traditional server where a single long-running request handler may process a click without executing the full UI script again.
+
+RepoGPT therefore uses `st.session_state` for values that need to survive those reruns, such as the currently selected index, messages and top-k setting. It uses `st.rerun()` after a successful indexing operation to render the newly indexed state.
+
+Do not confuse a script rerun with a complete server restart. A rerun is a new execution of the script within the running app; the process and its resource caches may continue to exist.
+
+### 18.9 Mini-exercise
+
+Without running or changing code, answer these:
+1. Does the function body run immediately when Python reads a `def` statement?
+2. In `parse_github_url(repo_url)`, which part is the function name and which part is the argument?
+3. Does the guarded `main()` call execute before or after module-level setup statements?
+4. Why might the app store an index in `st.session_state` rather than create it again for every question?
+5. What does `return answer_text, response.source_nodes` provide to the caller of `answer()`?
+
+Answers to check yourself:
+1. No. Defining a function creates it; calling it executes its body.
+2. `parse_github_url` is the function name; `repo_url` is the argument expression.
+3. After preceding module-level statements have executed.
+4. So a prepared index can remain available to that session across Streamlit reruns, without rebuilding it for every question.
+5. A pair of results: the generated answer text and source nodes.
+
+### 18.10 Completion criteria
+
+The lesson is complete when the learner can describe the module startup sequence, distinguish a function definition from a function call, explain a parameter/return value/side effect, trace both interaction paths, and explain why Streamlit reruns make session state useful.
 
 ---
 
