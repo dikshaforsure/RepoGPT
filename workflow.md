@@ -27,6 +27,7 @@
 - [19. Lesson 2 assessment and corrections](#19-lesson-2-assessment-and-corrections)
 - [20. Lesson 2 checkpoint result](#20-lesson-2-checkpoint-result)
 - [21. Lesson 3: How Streamlit displays and remembers information](#21-lesson-3-how-streamlit-displays-and-remembers-information)
+- [22. Lesson 3 checkpoint assessment](#22-lesson-3-checkpoint-assessment)
 
 ## 1. Project in one minute
 
@@ -408,7 +409,7 @@ Update this table as each teaching session is completed. A topic should be marke
 | Application startup and function call graph | Passed (conceptual checkpoint) | Learner explained function definition vs call, identified `parse_github_url()` as a custom function, and corrected the entry-point execution order; next learn Streamlit reruns and session state |
 | Indexing workflow | Introduced, not yet demonstrated | Reteach from the product analogy, then trace URL → documents → searchable index |
 | Question-answering workflow | Introduced, not yet demonstrated | Explain question → relevant chunks → generated answer before introducing LlamaIndex terminology |
-| Session state and caching | Initial review | Test cache behavior when repository content changes without changing URL/branch |
+| Session state and caching | In progress — reruns understood partly | Learner understands that session state preserves values and Clear chat removes messages; reinforce that the whole script reruns, `setdefault` only fills missing keys, and this code does not pass chat history into the LLM |
 | Embeddings and semantic similarity | Lesson started | Conceptual explanation added in Section 15; run and record the retrieval experiment before marking complete |
 | LlamaIndex documents, nodes, index and query engine | Pending deep dive | Inspect nodes/metadata and change retrieval settings |
 | Groq generation, tokens and streaming | Pending hands-on lesson | Compare a direct API call with the LlamaIndex path |
@@ -956,9 +957,15 @@ This small example describes a page title, a URL input, and a button. When the b
 
 ### 21.2 Why does the script run again?
 
-Streamlit commonly reruns the script after a user interacts with a widget. Imagine a restaurant order form that redraws the page after you click a button. Without somewhere to preserve the current order, the program could lose important information each time it redraws.
+Streamlit commonly reruns the **whole Python script**, from the top, after a user interacts with a widget. It does not jump straight to only the clicked button's function. Imagine redrawing a form after a click: the page code is run again, and Streamlit tracks which widget caused the interaction.
 
-RepoGPT therefore needs to keep information such as the selected index, current messages and retrieval depth available across reruns.
+A rerun does not mean every expensive operation is repeated. In RepoGPT, the indexing branch runs only when the Index repository button is reported as clicked for that run. On later reruns, the button is not newly clicked, so `index_repository(repo_url)` is not called just because the script reran. The existing index can remain in `st.session_state.index`, and cached resources/results can sometimes be reused according to cache rules.
+
+After a successful indexing attempt, the code explicitly calls `st.rerun()`. That causes another full script execution. On that next execution, the app sees that the index is already present and displays the chat interface.
+
+A full **server/process restart** is different: Python starts a fresh process, runs module-level setup again, and Streamlit's in-memory session state and process-level resource caches are lost. The index is not automatically restored from a persistent vector database because this project does not configure one; the user generally has to index the repository again.
+
+Analogy: a rerun is like refreshing the current order screen while keeping the current order notebook; a server restart is like closing the restaurant's running system and starting a fresh one without the in-memory notebook.
 
 ### 21.3 What is session state?
 
@@ -988,7 +995,7 @@ Plain-language interpretation:
 - `top_k` stores the selected retrieval depth.
 - `groq_key` and `github_key` hold the sidebar's current input values.
 
-The method `setdefault(key, value)` means “create this key with the default only if it is not already present.” It avoids overwriting the current value on every rerun.
+The method `setdefault(key, value)` is itself called on every script execution. It means “if this key does not exist, add it with this default; if it already exists, leave its current value alone.” It is not mainly a performance shortcut and it does not run only once. The important benefit is that existing state—such as the selected index or accumulated messages—is not reset to a default each time the script reruns.
 
 ### 21.4 Widget interaction sequence
 
@@ -1035,11 +1042,59 @@ Use the already deployed app:
 4. Clear the chat using the sidebar button. Observe that the messages are cleared while the indexed repository remains selected.
 5. Explain why clearing chat doesn't require building the index again.
 
-Expected reasoning: the Clear chat button empties `st.session_state.messages` and calls `st.rerun()`; it does not set `st.session_state.index` to `None`. Therefore the current index can remain available while the conversation history is removed.
+Expected reasoning: the Clear chat button empties `st.session_state.messages` and calls `st.rerun()`; it does not set `st.session_state.index` to `None`. Therefore the current index can remain available while the displayed conversation history is removed.
+
+**A code-specific detail:** the current `answer(question)` function passes only the latest `question` to `query_engine.query(question)`. Although the previous messages are stored and displayed, the code does not explicitly pass that message history as conversational memory to the LlamaIndex query engine. Therefore, in the current implementation, a follow-up question is not automatically interpreted using the previous chat turns; it is answered against the repository index and the latest question. Clearing chat removes the displayed/stored history, but it does not clear the index.
 
 ### 21.9 Completion criteria
 
 The learner should be able to explain what Streamlit renders, why the script reruns after interactions, why `st.session_state.setdefault` is used, and why clearing the messages doesn't necessarily clear the index. Do not move to the next concept until this explanation is clear.
+
+---
+
+## 22. Lesson 3 checkpoint assessment
+
+**Status: Partially understood. Do not proceed to GitHub ingestion until the learner can explain script reruns and default initialization precisely.**
+
+### Answer 1 — Rerun versus server restart
+
+The learner understands that Streamlit reacts to button clicks and that saved state/cache can prevent unnecessary re-indexing. The key correction is that Streamlit reruns the **whole script**, not only the clicked function. The button condition is true for the interaction run, so it calls the handler. On unrelated later reruns, that indexing button branch is not automatically called again.
+
+A successful index is stored in session state and the application calls `st.rerun()`. The resulting full script run sees that the index exists and shows the chat UI. A server/process restart starts a new process and loses in-memory session state and process resource caches; because the index is not persistently stored, the user generally needs to index the repository again.
+
+### Answer 2 — `setdefault`
+
+The learner correctly identified that defaults are needed at startup and that resetting the index every time would be undesirable. Correction: `setdefault` is encountered and called again on each script rerun; it only inserts the default if the key is missing. It preserves existing values rather than reassigning them. This is about preserving state, not primarily about saving execution time.
+
+### Answer 3 — Clear chat
+
+The learner correctly understands that the Clear chat button removes messages without removing the index. The code sets `st.session_state.messages = []` and reruns the script; it does not reset `st.session_state.index`.
+
+Additional nuance found in the actual implementation: `answer(question)` passes only the latest question to `query_engine.query(question)`. The application stores and renders prior messages, but doesn't explicitly send this history as LLM conversational memory. Thus, the current implementation answers each turn using the current question and retrieved repository context, rather than automatically carrying the meaning of previous turns.
+
+### Small mental model
+
+~~~mermaid
+flowchart TD
+    A[User clicks a widget] --> B[Streamlit reruns the whole script]
+    B --> C[Read existing session state]
+    C --> D{Was Index repository clicked in this run?}
+    D -- Yes --> E[Run indexing handler]
+    D -- No --> F[Continue normal UI path]
+    E --> G[Save index in session state]
+    G --> H[st.rerun triggers another full run]
+    H --> C
+    F --> I[Show current screen and handle chat if submitted]
+~~~
+
+### Follow-up checkpoint
+
+Explain these three points without using a memorized definition:
+1. When Streamlit reruns the script, why doesn't that automatically mean the repository is re-indexed?
+2. In `st.session_state.setdefault("index", None)`, what happens if `index` already contains a valid vector index?
+3. After Clear chat, why can the index still be used, and does the current code send previous chat messages to the LLM when answering a new question?
+
+Only after these are clear should the course move to GitHub ingestion.
 
 ---
 
