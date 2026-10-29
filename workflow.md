@@ -20,6 +20,7 @@
 - [12. Glossary](#12-glossary)
 - [13. Learning and verification log](#13-learning-and-verification-log)
 - [14. Topics to add as the deep dive continues](#14-topics-to-add-as-the-deep-dive-continues)
+- [15. Lesson 2: Embeddings and semantic retrieval](#15-lesson-2-embeddings-and-semantic-retrieval)
 
 ## 1. Project in one minute
 
@@ -401,7 +402,7 @@ Update this table as each teaching session is completed. A topic should be marke
 | Indexing workflow | Explained | Validate URL → load docs → build index → save session state |
 | Question-answering workflow | Explained | Query engine → retrieval/synthesis → streaming → sources |
 | Session state and caching | Initial review | Test cache behavior when repository content changes without changing URL/branch |
-| Embeddings and semantic similarity | Pending hands-on lesson | Generate vectors and compare retrieval rankings |
+| Embeddings and semantic similarity | Lesson started | Conceptual explanation added in Section 15; run and record the retrieval experiment before marking complete |
 | LlamaIndex documents, nodes, index and query engine | Pending deep dive | Inspect nodes/metadata and change retrieval settings |
 | Groq generation, tokens and streaming | Pending hands-on lesson | Compare a direct API call with the LlamaIndex path |
 | URL parsing and GitHub ingestion tests | Pending hands-on lesson | Add tests for standard, branch-specific and invalid URLs |
@@ -422,6 +423,119 @@ Recommended next chapters:
 6. **Testing strategy:** unit tests, integration tests, retrieval evaluation and end-to-end acceptance criteria.
 7. **Production architecture:** persistence, cache invalidation, resource constraints, access control and safe observability.
 8. **Interview preparation:** a five-minute architecture narrative, design trade-offs and evidence-backed answers to likely questions.
+
+---
+
+## 15. Lesson 2: Embeddings and semantic retrieval
+
+**Status:** Conceptual walkthrough added; hands-on retrieval experiment remains pending. Do not mark this lesson complete until retrieval results have been observed and recorded.
+
+### 15.1 The problem embeddings solve
+
+Keyword search looks for literal text matches. Semantic retrieval tries to find text that is related in meaning, even when the wording differs.
+
+For example, a developer might ask, “Where does the app check a user's login details?” while the code uses names such as `authenticate_user`, `verify_credentials`, or `login_handler`. A semantic search system can sometimes connect those concepts even without exact word overlap. That is an advantage, not a guarantee: retrieval quality depends on the embedding model, the code chunks, the query wording and the index configuration.
+
+### 15.2 What an embedding is
+
+An embedding model maps text to a numeric vector. Text with related meanings can produce vectors that are closer under a chosen similarity measure.
+
+Conceptually:
+
+~~~mermaid
+flowchart LR
+    A[Source text chunk] --> B[Embedding model]
+    B --> C[Numeric vector]
+    D[Natural-language question] --> E[Same embedding model]
+    E --> F[Query vector]
+    C --> G[Similarity ranking]
+    F --> G
+    G --> H[Top-k chunks]
+~~~
+
+RepoGPT configures the local embedding model by default as `BAAI/bge-small-en-v1.5`. Its source sets `Settings.embed_model = get_embedding_model()` inside `configure_models()`. The model is loaded through LlamaIndex's `HuggingFaceEmbedding` integration and cached by Streamlit.
+
+A vector is not a summary, a database record, a generated answer, or a manually assigned category. It is a numeric representation that allows text to be compared in vector space.
+
+### 15.3 Where embeddings happen in this codebase
+
+The application delegates embedding operations to LlamaIndex; there is no direct call to a low-level model `encode()` method in `main.py`.
+
+**At indexing time:**
+1. `load_repository()` returns LlamaIndex documents representing supported repository files and associated metadata.
+2. `build_index()` calls `VectorStoreIndex.from_documents(_docs, show_progress=False)`.
+3. LlamaIndex applies its document/node processing and embedding pipeline using the configured embedding model.
+4. The resulting vectors and nodes form the in-memory index used for search.
+
+**At question time:**
+1. `answer(question)` creates a query engine from `st.session_state.index`.
+2. The query engine processes the question and obtains a query embedding through the configured embedding integration as part of the retrieval pipeline.
+3. The index ranks candidate nodes according to its retrieval implementation.
+4. The query engine uses retrieved context to synthesize the answer with the configured LLM.
+
+The chunking/splitting configuration is not explicitly set in `main.py`; the effective behavior depends on the LlamaIndex version and default transformations in the installed dependency set. Inspect actual nodes and package versions before asserting a precise chunk size, overlap, or default ranking configuration.
+
+### 15.4 Similarity intuition
+
+A common similarity measure for vectors is cosine similarity:
+
+~~~math
+\operatorname{cosine}(a,b)=\frac{a\cdot b}{\lVert a\rVert\,\lVert b\rVert}
+~~~
+
+Here, (a\cdot b) is the dot product and the denominator scales it by the vector lengths. For non-zero vectors, cosine similarity compares the alignment of the vectors' directions. Do not assume RepoGPT exposes this score in its UI: the current UI displays source paths, and the exact scoring implementation is delegated to the indexing/retrieval library and configuration.
+
+### 15.5 What top-k means in RepoGPT
+
+The sidebar slider ranges from 2 to 15 and defaults to 5. Its value is assigned to `st.session_state.top_k` and passed as `similarity_top_k` to `index.as_query_engine(...)`.
+
+- A small top-k can omit a second relevant implementation detail that is stored in another chunk.
+- A larger top-k can provide broader context, but it can also add unrelated text, increase prompt size, raise latency and dilute the useful evidence.
+- A larger value is not automatically better. The useful setting depends on the query and repository.
+
+### 15.6 Embedding, retrieval and generation are different jobs
+
+| Stage | Input | Output | Responsibility |
+|---|---|---|---|
+| Document embedding | Source text nodes | Vectors | Represent source text numerically |
+| Query embedding | User's question | Query vector | Represent the information need |
+| Retrieval | Query vector and indexed vectors/nodes | Ranked source nodes | Select potentially useful evidence |
+| Answer synthesis | Question plus retrieved context | Natural-language answer | Explain the retrieved material |
+
+The embedding model does not write the final answer. The Groq-hosted LLM does not need to create all the stored document embeddings on every question. Keeping those responsibilities separate is a core RAG concept.
+
+### 15.7 Hands-on experiment to complete
+
+Use the already deployed application; no installation steps are required.
+
+1. Index `https://github.com/dikshaforsure/RepoGPT`.
+2. Ask: “Which function creates the searchable index?”
+3. Record the answer and all source paths shown by the app.
+4. Ask the same question in different words: “Where are repository documents converted into a structure that can be searched?”
+5. Compare whether the source paths overlap and whether the answers identify `build_index` and `VectorStoreIndex.from_documents`.
+6. Set top-k to 2 and repeat; then set it to 10 and repeat. Record changes in sources, factual usefulness, irrelevant context and latency.
+7. Inspect the referenced code in `main.py` and verify each answer independently.
+
+Keep observations in a small table with columns: question wording, top-k, source paths returned, answer accuracy, missing evidence and notes. Do not invent numerical relevance scores: the app currently does not display them.
+
+### 15.8 Questions you should be able to answer
+
+- Why is semantic retrieval useful when developers ask questions in natural language?
+- What does the embedding model return?
+- At which points in RepoGPT are document and query embeddings used?
+- Why does changing top-k potentially change answer quality?
+- Does RepoGPT train its embedding model? **No; the current application loads a pre-trained model.**
+- Does the current UI expose numeric similarity scores? **No; it displays source paths from retrieved node metadata.**
+- Is the chunk size explicitly configured in `main.py`? **No; inspect the effective LlamaIndex defaults and actual nodes before stating exact chunking settings.**
+
+### 15.9 Completion criteria
+
+Mark the embeddings/retrieval lesson complete only after you can:
+- explain document embeddings versus query embeddings;
+- point to the index-building and query-engine lines in `main.py`;
+- explain top-k trade-offs;
+- run the experiment above and record what actually happened; and
+- verify at least one generated explanation against the original source.
 
 ---
 
