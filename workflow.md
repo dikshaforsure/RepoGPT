@@ -409,7 +409,7 @@ Update this table as each teaching session is completed. A topic should be marke
 | Repository structure and README | Reviewed | Current `main` branch tree and README inspected |
 | Product purpose and major component roles | Passed with corrections | Learner correctly explained GitHub, embeddings, LLM, Streamlit, and indexing vs answering; clarified in-memory index versus persistent vector database |
 | Application startup and function call graph | Passed (conceptual checkpoint) | Learner explained function definition vs call, identified `parse_github_url()` as a custom function, and corrected the entry-point execution order; next learn Streamlit reruns and session state |
-| Indexing workflow | In progress — high-level flow understood | Learner correctly distinguishes fetching documents from building an index; correct one URL-parsing detail (the branch is `develop`, not `tree`) before tracing the source code further |
+| Indexing workflow | In progress — URL parsing checkpoint passed | Learner correctly distinguished the branch `develop` from the structural URL segment `tree`, and understands that fetching documents and building an index are separate stages |
 | Question-answering workflow | Introduced, not yet demonstrated | Explain question → relevant chunks → generated answer before introducing LlamaIndex terminology |
 | Session state and caching | Passed (conceptual checkpoint) | Learner correctly explained that state survives reruns, `setdefault` preserves an existing index, and Clear chat removes messages while leaving the index available; the app does not explicitly pass prior chat history to the query engine |
 | Embeddings and semantic similarity | Lesson started | Conceptual explanation added in Section 15; run and record the retrieval experiment before marking complete |
@@ -1153,7 +1153,7 @@ Next, learn what a **document** means in LlamaIndex, why RepoGPT filters file ex
 
 ## 24. Lesson 4 first checkpoint: parsing and ingestion
 
-**Status: Partially passed (29 October 2026).** The learner understands the distinction between repository ingestion and index construction. Reinforce URL path parsing before proceeding into the reader implementation.
+**URL-parsing checkpoint passed (29 October 2026); ingestion workflow remains in progress.** The learner correctly stated that `develop` is the branch and `tree` is part of GitHub's URL format.
 
 ### Response review
 
@@ -1166,6 +1166,11 @@ Next, learn what a **document** means in LlamaIndex, why RepoGPT filters file ex
 The current `parse_github_url()` implementation initializes the branch to `main`. If the path contains at least four segments and the third segment is `tree`, it joins all segments after `tree` as the branch name. This also supports branch names containing `/`. The function returns `(owner, repo, branch)`.
 
 The current `load_repository()` configures `GithubRepositoryReader` with the owner, repository, inclusion list of file extensions, and `concurrent_requests=5`; it returns `loader.load_data(branch=branch)`. The current `build_index()` calls `configure_models(groq_api_key)` and then `VectorStoreIndex.from_documents(_docs, show_progress=False)`.
+
+
+### URL parsing follow-up result
+
+The learner's follow-up answer was correct: `develop` is the branch name, while `tree` is a structural URL segment that marks a branch-specific URL. This resolves the prior ambiguity. Continue to source reading; do not treat this conceptual check as proof that all URL edge cases have been tested.
 
 ### Same-topic follow-up before advancing
 
