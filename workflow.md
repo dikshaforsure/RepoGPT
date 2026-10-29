@@ -30,6 +30,7 @@
 - [22. Lesson 3 checkpoint assessment](#22-lesson-3-checkpoint-assessment)
 - [23. Lesson 3 checkpoint result](#23-lesson-3-checkpoint-result)
 - [24. Lesson 4 first checkpoint: parsing and ingestion](#24-lesson-4-first-checkpoint-parsing-and-ingestion)
+- [25. Lesson 4: reading supported files from GitHub](#25-lesson-4-reading-supported-files-from-github)
 
 ## 1. Project in one minute
 
@@ -409,7 +410,7 @@ Update this table as each teaching session is completed. A topic should be marke
 | Repository structure and README | Reviewed | Current `main` branch tree and README inspected |
 | Product purpose and major component roles | Passed with corrections | Learner correctly explained GitHub, embeddings, LLM, Streamlit, and indexing vs answering; clarified in-memory index versus persistent vector database |
 | Application startup and function call graph | Passed (conceptual checkpoint) | Learner explained function definition vs call, identified `parse_github_url()` as a custom function, and corrected the entry-point execution order; next learn Streamlit reruns and session state |
-| Indexing workflow | In progress — URL parsing checkpoint passed | Learner correctly distinguished the branch `develop` from the structural URL segment `tree`, and understands that fetching documents and building an index are separate stages |
+| Indexing workflow | In progress — URL parsing checkpoint passed | Learner correctly distinguished branch `develop` from URL segment `tree`; next checkpoint is to explain the extension filter and reader flow from source code |
 | Question-answering workflow | Introduced, not yet demonstrated | Explain question → relevant chunks → generated answer before introducing LlamaIndex terminology |
 | Session state and caching | Passed (conceptual checkpoint) | Learner correctly explained that state survives reruns, `setdefault` preserves an existing index, and Clear chat removes messages while leaving the index available; the app does not explicitly pass prior chat history to the query engine |
 | Embeddings and semantic similarity | Lesson started | Conceptual explanation added in Section 15; run and record the retrieval experiment before marking complete |
@@ -1177,6 +1178,80 @@ The learner's follow-up answer was correct: `develop` is the branch name, while 
 Ask the learner one question: In `https://github.com/example/my-project/tree/develop`, what is the branch name, and what role does the path segment `tree` play?
 
 Once this is clear, continue by examining the supported file-extension list and the `load_repository()` function line by line. Do not jump to embeddings or retrieval until the learner can trace URL → owner/repository/branch → fetched documents → index.
+
+---
+
+## 25. Lesson 4: reading supported files from GitHub
+
+**Goal:** Understand exactly what `FILE_EXTENSIONS` and `load_repository()` do before examining embedding and indexing.
+
+### 25.1 Why define `FILE_EXTENSIONS`?
+
+The source defines a Python list named `FILE_EXTENSIONS`. It contains extensions such as `.py`, `.ipynb`, `.js`, `.jsx`, `.ts`, `.tsx`, `.java`, `.cpp`, `.sql`, `.md`, `.json`, `.yaml` and `.toml`.
+
+A file extension is the suffix that usually indicates a file type. For example, `main.py` ends with `.py`, while `README.md` ends with `.md`.
+
+RepoGPT is intended to understand source code and related text/configuration, not every file stored in a GitHub repository. The configured inclusion filter narrows the ingestion to listed extensions. This helps avoid spending indexing time on unrelated assets or unsupported file types. It also means a useful file whose extension is not listed may be omitted from the indexed content.
+
+### 25.2 The `load_repository()` function, line by line
+
+The implementation currently in `main.py` is:
+
+~~~python
+def load_repository(github_token: str, owner: str, repo: str, branch: str):
+    loader = GithubRepositoryReader(
+        GithubClient(github_token, verbose=False),
+        owner=owner,
+        repo=repo,
+        filter_file_extensions=(
+            FILE_EXTENSIONS,
+            GithubRepositoryReader.FilterType.INCLUDE,
+        ),
+        verbose=False,
+        concurrent_requests=5,
+    )
+    return loader.load_data(branch=branch)
+~~~
+
+The actual source also decorates this function with `@st.cache_resource(show_spinner=False)`, and includes a docstring.
+
+Read each piece:
+
+1. `github_token: str, owner: str, repo: str, branch: str` are the inputs. Type hints say these values are expected to be strings. They do not by themselves validate that the repository or branch exists.
+2. `GithubClient(github_token, verbose=False)` creates the GitHub client using the supplied token. The token gives the reader the credentials it uses for GitHub requests; never commit or disclose the token.
+3. `GithubRepositoryReader(...)` creates a reader configured for the selected owner and repository.
+4. `filter_file_extensions=(FILE_EXTENSIONS, GithubRepositoryReader.FilterType.INCLUDE)` tells this reader to include files matching the configured extension list.
+5. `verbose=False` disables verbose output from the client/reader in this configuration.
+6. `concurrent_requests=5` configures the reader for up to five concurrent requests, rather than asking it to do all fetching strictly one request at a time.
+7. `loader.load_data(branch=branch)` asks the reader to load content for the selected branch. The returned result is passed straight back to the caller using `return`.
+
+### 25.3 What comes back from the reader?
+
+`load_repository()` returns the reader's loaded document objects. Conceptually, a document contains text content plus metadata such as the source file path. The reader's result is an input to the next stage; this function does not call `VectorStoreIndex.from_documents()` and does not itself build RepoGPT's vector index.
+
+~~~mermaid
+flowchart TD
+    A[owner, repo, branch and token] --> B[Create GithubClient]
+    B --> C[Configure GithubRepositoryReader]
+    C --> D[Apply FILE_EXTENSIONS inclusion filter]
+    D --> E[load_data for chosen branch]
+    E --> F[Document objects with content and metadata]
+    F --> G[Return documents to index_repository]
+    G --> H[build_index runs as the next stage]
+~~~
+
+### 25.4 What the decorator means at this stage
+
+`@st.cache_resource(show_spinner=False)` decorates `load_repository()`. Streamlit can reuse a cached result when the function's cache key matches, rather than repeating the same load operation. This is separate from session state: session state holds values for a user's session, while a resource cache reuses results/resources according to Streamlit's cache rules. Cache-key details and invalidation will be handled in the caching lesson; do not assume that the cache automatically detects every remote repository content change.
+
+### 25.5 Checkpoint — answer before proceeding
+
+1. Why does RepoGPT pass `FILE_EXTENSIONS` with `FilterType.INCLUDE` to the reader?
+2. Which line actually asks the reader to fetch/load the selected branch, and what does `return` do with the result?
+3. Does `load_repository()` create the vector index, or does it return documents for `build_index()`?
+4. If a repository has a useful `.pdf` file but `.pdf` is not in the extension list, should you assume this configured filter will include it?
+
+Do not continue to embedding mechanics until these can be explained in plain language.
 
 ---
 
