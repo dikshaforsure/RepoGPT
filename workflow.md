@@ -24,6 +24,7 @@
 - [16. Beginner-first intensive learning plan (8–10 hours)](#16-beginner-first-intensive-learning-plan-8-10-hours)
 - [17. Reteaching checkpoint: product model understood; execution model still to learn](#17-reteaching-checkpoint-product-model-understood-execution-model-still-to-learn)
 - [18. Lesson 3: How the Python application starts and runs](#18-lesson-3-how-the-python-application-starts-and-runs)
+- [19. Lesson 2 assessment and corrections](#19-lesson-2-assessment-and-corrections)
 
 ## 1. Project in one minute
 
@@ -401,7 +402,8 @@ Update this table as each teaching session is completed. A topic should be marke
 | Topic | Status | Evidence / next action |
 |---|---|---|
 | Repository structure and README | Reviewed | Current `main` branch tree and README inspected |
-| Product purpose and major component roles | Passed with corrections | Learner correctly explained GitHub, embeddings, LLM, Streamlit, and indexing vs answering; clarify in-memory index versus persistent vector database |\n| Application startup and function call graph | Current lesson | Teach module execution, function definitions/calls, and the `__main__` guard in plain language before tracing nested calls |
+| Product purpose and major component roles | Passed with corrections | Learner correctly explained GitHub, embeddings, LLM, Streamlit, and indexing vs answering; clarified in-memory index versus persistent vector database |
+| Application startup and function call graph | In progress | Function definition vs call is understood; correct the idea that Python starts at `main()` and distinguish the custom `parse_github_url()` function from a library |
 | Indexing workflow | Introduced, not yet demonstrated | Reteach from the product analogy, then trace URL → documents → searchable index |
 | Question-answering workflow | Introduced, not yet demonstrated | Explain question → relevant chunks → generated answer before introducing LlamaIndex terminology |
 | Session state and caching | Initial review | Test cache behavior when repository content changes without changing URL/branch |
@@ -823,6 +825,95 @@ Answers to check yourself:
 ### 18.10 Completion criteria
 
 The lesson is complete when the learner can describe the module startup sequence, distinguish a function definition from a function call, explain a parameter/return value/side effect, trace both interaction paths, and explain why Streamlit reruns make session state useful.
+
+---
+
+## 19. Lesson 2 assessment and corrections
+
+**Status:** Partially understood. The learner understands the recipe analogy for defining versus calling a function and has the main indexing sequence. Reinforce two precise details before moving on: the URL parser is application code, and Python does not begin execution at `main()`.
+
+### Answer 1 — Defining versus calling a function
+
+**Assessment:** Correct.
+
+The learner's recipe analogy is accurate. A function definition gives Python a reusable named group of instructions; the body does not run just because Python encounters the `def` statement. Calling the function runs its body.
+
+Precision: the `def` statement itself does execute in the sense that Python creates the function object and binds the name, but the function's body waits until it is called.
+
+### Answer 2 — Clicking “Index repository”
+
+**Assessment:** Mostly correct, with a naming correction.
+
+The correct function name is `parse_github_url()`. It is a custom function defined in `main.py`; it is **not** a library named `github_parse_url`.
+
+The source-level sequence is:
+1. The button in `render_sidebar()` calls `index_repository(repo_url)`.
+2. `index_repository()` checks that the URL and credentials are present.
+3. It calls `parse_github_url(repo_url)` to return owner, repository and branch.
+4. It calls `load_repository(github_token, owner, repo, branch)` to fetch supported documents.
+5. It calls `build_index(docs, groq_key, ...)` to create the vector index.
+6. After successful indexing, it saves the index and associated UI metadata in `st.session_state`, clears the message history and calls `st.rerun()`.
+
+The missing detail in the learner's answer was the explicit `build_index()` step and the post-success state update. The main sequence was otherwise right.
+
+### Answer 3 — Why `main()` runs after setup
+
+**Assessment:** Partly correct, but the execution order needs a correction.
+
+The learner correctly recognised that imports and configuration occur before the call to `main()`. However, Python does **not** inherently start at a function named `main`, and Python does not require a function with that name.
+
+For this project, Python executes statements at the top level of `main.py` in order. The imports, environment setup, NLTK checks, constants and prompt-template construction happen before the bottom entry-point guard. Function definitions also execute as definitions, making function objects available; their bodies run when called.
+
+At the bottom:
+
+~~~python
+if __name__ == "__main__":
+    main()
+~~~
+
+When the script is being run as the main application, this guard calls `main()`. The function is used as the app's organiser/entry point by this project's design, not because Python requires every program to have a `main()` function.
+
+### Small same-topic tracing exercise
+
+Consider this simplified Python code:
+
+~~~python
+print("A: file begins")
+
+def worker():
+    print("B: inside worker")
+
+print("C: function has been defined")
+worker()
+print("D: file ends")
+~~~
+
+Expected output:
+
+~~~text
+A: file begins
+C: function has been defined
+B: inside worker
+D: file ends
+~~~
+
+Why:
+- The first print runs immediately.
+- The function definition creates `worker`; its body does not run yet.
+- The next print runs.
+- `worker()` calls the function, so its body prints B.
+- The final print runs after the function returns.
+
+### Follow-up check before advancing
+
+Ask the learner to explain these in their own words:
+1. When Python reaches `def worker():`, does it print B immediately? Why?
+2. Is `parse_github_url()` a third-party library or a function defined in RepoGPT's `main.py`?
+3. Which function calls `parse_github_url()`, and what information does it receive back?
+4. Does Python start executing directly at `main()`, or does the module's top-level code run first?
+5. After `build_index()` succeeds, what does RepoGPT save in session state before rerunning?
+
+Do not begin a new technical topic until these details can be explained without relying on memorized wording.
 
 ---
 
