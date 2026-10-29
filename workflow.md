@@ -479,11 +479,11 @@ The chunking/splitting configuration is not explicitly set in `main.py`; the eff
 
 A common similarity measure for vectors is cosine similarity:
 
-~~~math
+$$
 \operatorname{cosine}(a,b)=\frac{a\cdot b}{\lVert a\rVert\,\lVert b\rVert}
-~~~
+$$
 
-Here, (a\cdot b) is the dot product and the denominator scales it by the vector lengths. For non-zero vectors, cosine similarity compares the alignment of the vectors' directions. Do not assume RepoGPT exposes this score in its UI: the current UI displays source paths, and the exact scoring implementation is delegated to the indexing/retrieval library and configuration.
+Here, the dot product is in the numerator, and the denominator scales it by the vector lengths. For non-zero vectors, cosine similarity compares the alignment of the vectors' directions. Do not assume RepoGPT exposes this score in its UI: the current UI displays source paths, and the exact scoring implementation is delegated to the indexing/retrieval library and configuration.
 
 ### 15.5 What top-k means in RepoGPT
 
