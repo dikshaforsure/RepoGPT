@@ -20,11 +20,13 @@
 - [12. Glossary](#12-glossary)
 - [13. Learning and verification log](#13-learning-and-verification-log)
 - [14. Topics to add as the deep dive continues](#14-topics-to-add-as-the-deep-dive-continues)
-- [15. Lesson 2: Embeddings and semantic retrieval](#15-lesson-2-embeddings-and-semantic-retrieval)
+- [15. Embeddings and semantic retrieval](#15-embeddings-and-semantic-retrieval)
 - [16. Beginner-first intensive learning plan (8–10 hours)](#16-beginner-first-intensive-learning-plan-8-10-hours)
-- [17. Reteaching checkpoint: product model understood; execution model still to learn](#17-reteaching-checkpoint-product-model-understood-execution-model-still-to-learn)
-- [18. Lesson 3: How the Python application starts and runs](#18-lesson-3-how-the-python-application-starts-and-runs)
+- [17. Foundational checkpoint: product model understood](#17-foundational-checkpoint-product-model-understood)
+- [18. Lesson 2: How the Python application starts and runs](#18-lesson-2-how-the-python-application-starts-and-runs)
 - [19. Lesson 2 assessment and corrections](#19-lesson-2-assessment-and-corrections)
+- [20. Lesson 2 checkpoint result](#20-lesson-2-checkpoint-result)
+- [21. Lesson 3: How Streamlit displays and remembers information](#21-lesson-3-how-streamlit-displays-and-remembers-information)
 
 ## 1. Project in one minute
 
@@ -403,7 +405,7 @@ Update this table as each teaching session is completed. A topic should be marke
 |---|---|---|
 | Repository structure and README | Reviewed | Current `main` branch tree and README inspected |
 | Product purpose and major component roles | Passed with corrections | Learner correctly explained GitHub, embeddings, LLM, Streamlit, and indexing vs answering; clarified in-memory index versus persistent vector database |
-| Application startup and function call graph | In progress | Function definition vs call is understood; correct the idea that Python starts at `main()` and distinguish the custom `parse_github_url()` function from a library |
+| Application startup and function call graph | Passed (conceptual checkpoint) | Learner explained function definition vs call, identified `parse_github_url()` as a custom function, and corrected the entry-point execution order; next learn Streamlit reruns and session state |
 | Indexing workflow | Introduced, not yet demonstrated | Reteach from the product analogy, then trace URL → documents → searchable index |
 | Question-answering workflow | Introduced, not yet demonstrated | Explain question → relevant chunks → generated answer before introducing LlamaIndex terminology |
 | Session state and caching | Initial review | Test cache behavior when repository content changes without changing URL/branch |
@@ -431,7 +433,7 @@ Recommended next chapters:
 
 ---
 
-## 15. Lesson 2: Embeddings and semantic retrieval
+## 15. Embeddings and semantic retrieval
 
 **Status:** Conceptual walkthrough added; hands-on retrieval experiment remains pending. Do not mark this lesson complete until retrieval results have been observed and recorded.
 
@@ -630,7 +632,7 @@ flowchart TD
 
 **Important ambiguity:** “token” can mean an API credential (such as `GITHUB_TOKEN`) or a piece of text processed by an LLM. They are entirely different things.
 
-## 17. Reteaching checkpoint: product model understood; execution model still to learn
+## 17. Foundational checkpoint: product model understood
 
 The learner's first checkpoint answers showed a good grasp of RepoGPT's purpose, indexing versus answering, and the high-level roles of GitHub, the embedding model, the LLM and Streamlit. The next lessons should build on that understanding instead of repeating those definitions.
 
@@ -667,11 +669,11 @@ Mark the lesson complete only when the learner can:
 - follow the call path `main()` → `render_sidebar()` → `index_repository()` and, separately, `main()` → `answer()`;
 - explain the difference between session state and resource caching at a basic level.
 
-Until those checks are satisfied, reteach the concept using a simpler analogy and a smaller code example rather than adding more new terms.
+Update after the follow-up checkpoint: the learner has now correctly described function definition versus call, identified `parse_github_url()` as application code, and explained that module-level statements execute before the guarded `main()` call. See Section 20 for the observed checkpoint result. The next teaching topic is Streamlit's UI and session state.
 
 ---
 
-## 18. Lesson 3: How the Python application starts and runs
+## 18. Lesson 2: How the Python application starts and runs
 
 **Prerequisite:** The learner understands RepoGPT's purpose, the distinction between indexing and answering, and the high-level component roles.
 
@@ -914,6 +916,130 @@ Ask the learner to explain these in their own words:
 5. After `build_index()` succeeds, what does RepoGPT save in session state before rerunning?
 
 Do not begin a new technical topic until these details can be explained without relying on memorized wording.
+
+---
+
+## 20. Lesson 2 checkpoint result
+
+**Status: Passed at the conceptual level.** The learner's latest answers demonstrate the required fundamentals.
+
+### Answer review
+
+1. **Function definition versus function call:** The learner gave the correct output, `Start` followed by `Hello`. To be fully precise: the top-level `print("Start")` executes when reached; the `def` statement defines the function without running its body; `show_message()` runs the body and prints `Hello`.
+2. **URL parser:** The learner correctly identified `parse_github_url()` as a function defined in the RepoGPT Python source and identified its result: owner, repository name and branch. It uses Python's URL utilities; it is not itself a third-party parsing library.
+3. **Execution order:** The learner correctly explained that top-level statements run in order before the guarded `main()` call. Python doesn't intrinsically require a function named `main`; this application invokes it from the `if __name__ == "__main__":` block.
+
+### What this establishes
+
+The learner can now reason about basic functions, calls, outputs, and the application entry point. This does not yet prove hands-on mastery of all indexing branches or Streamlit's state/cache mechanics. Keep later workflow and retrieval experiments on the study plan.
+
+---
+
+## 21. Lesson 3: How Streamlit displays and remembers information
+
+**Goal:** Understand the browser interface, a widget interaction, script reruns and session state before studying the AI pipeline.
+
+### 21.1 What Streamlit does
+
+A normal Python script typically prints to a terminal. RepoGPT uses Streamlit calls such as `st.title`, `st.text_input`, `st.button`, `st.chat_input` and `st.markdown` to build an interactive page from Python. The browser shows the interface, while the Python application runs on the deployed server.
+
+For example:
+
+~~~python
+st.title("RepoGPT — Codebase Q&A")
+repo_url = st.text_input("GitHub URL")
+if st.button("Index repository"):
+    index_repository(repo_url)
+~~~
+
+This small example describes a page title, a URL input, and a button. When the button click is received in a relevant Streamlit script run, the app calls the function with the URL value.
+
+### 21.2 Why does the script run again?
+
+Streamlit commonly reruns the script after a user interacts with a widget. Imagine a restaurant order form that redraws the page after you click a button. Without somewhere to preserve the current order, the program could lose important information each time it redraws.
+
+RepoGPT therefore needs to keep information such as the selected index, current messages and retrieval depth available across reruns.
+
+### 21.3 What is session state?
+
+Session state is a set of named values associated with a user's active Streamlit session. RepoGPT initializes defaults with this pattern:
+
+~~~python
+defaults = {
+    "messages": [],
+    "index": None,
+    "repo_label": "",
+    "doc_count": 0,
+    "index_seconds": 0.0,
+    "top_k": 5,
+    "groq_key": "",
+    "github_key": "",
+}
+
+for key, value in defaults.items():
+    st.session_state.setdefault(key, value)
+~~~
+
+Plain-language interpretation:
+- `messages` stores the conversation history for this session.
+- `index` stores the currently selected in-memory vector index object.
+- `repo_label` identifies the indexed repository and branch.
+- `doc_count` and `index_seconds` feed the UI's status text.
+- `top_k` stores the selected retrieval depth.
+- `groq_key` and `github_key` hold the sidebar's current input values.
+
+The method `setdefault(key, value)` means “create this key with the default only if it is not already present.” It avoids overwriting the current value on every rerun.
+
+### 21.4 Widget interaction sequence
+
+~~~mermaid
+sequenceDiagram
+    actor User
+    participant Browser as Streamlit interface
+    participant App as Python script
+    participant State as Session state
+
+    User->>Browser: Click or submit a widget
+    Browser->>App: Send interaction to running app
+    App->>State: Read values preserved for this session
+    App->>App: Run the script again and process the interaction
+    App->>State: Update values when needed
+    App-->>Browser: Render the updated UI
+~~~
+
+This is a simplified mental model; it omits protocol and framework internals. The key concept is that the script can run again while session state preserves the values the app needs.
+
+### 21.5 Why does indexing call `st.rerun()`?
+
+After indexing succeeds, RepoGPT saves `st.session_state.index`, repository metadata and a cleared chat history. It then calls `st.rerun()` so the next UI execution sees that `index` is no longer `None` and renders the chat interface.
+
+A rerun is not the same as restarting the whole server. The Python process and resource caches can continue running.
+
+### 21.6 Session state is not the same as a cache
+
+- **Session state** holds values for the current user's session, such as the index selected in that session and their message history.
+- **Resource cache** (used by `@st.cache_resource`) can reuse expensive resources or computed results according to cache keys and cache lifetime. Its scope and behavior differ from session state and can cross user sessions.
+
+This is only the first distinction. Cache keys, invalidation and the consequences of RepoGPT's `_docs` parameter will be examined separately and tested later.
+
+### 21.7 Limitations to remember
+
+Session state is not persistent database storage. Do not assume that the index will survive a server process restart, or that session data is a durable cross-session history. The current code holds the selected index in runtime memory and does not configure persistent vector storage.
+
+### 21.8 Mini-exercise
+
+Use the already deployed app:
+1. Open it in one browser session. Before indexing, note that it displays instructions.
+2. Index the RepoGPT repository. Observe that the interface now displays the chat controls.
+3. Ask a question and then ask a second question. Observe that the previous message remains visible within that session.
+4. Clear the chat using the sidebar button. Observe that the messages are cleared while the indexed repository remains selected.
+5. Explain why clearing chat doesn't require building the index again.
+
+Expected reasoning: the Clear chat button empties `st.session_state.messages` and calls `st.rerun()`; it does not set `st.session_state.index` to `None`. Therefore the current index can remain available while the conversation history is removed.
+
+### 21.9 Completion criteria
+
+The learner should be able to explain what Streamlit renders, why the script reruns after interactions, why `st.session_state.setdefault` is used, and why clearing the messages doesn't necessarily clear the index. Do not move to the next concept until this explanation is clear.
 
 ---
 
