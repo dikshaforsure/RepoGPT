@@ -28,6 +28,7 @@
 - [20. Lesson 2 checkpoint result](#20-lesson-2-checkpoint-result)
 - [21. Lesson 3: How Streamlit displays and remembers information](#21-lesson-3-how-streamlit-displays-and-remembers-information)
 - [22. Lesson 3 checkpoint assessment](#22-lesson-3-checkpoint-assessment)
+- [23. Lesson 3 checkpoint result](#23-lesson-3-checkpoint-result)
 
 ## 1. Project in one minute
 
@@ -409,7 +410,7 @@ Update this table as each teaching session is completed. A topic should be marke
 | Application startup and function call graph | Passed (conceptual checkpoint) | Learner explained function definition vs call, identified `parse_github_url()` as a custom function, and corrected the entry-point execution order; next learn Streamlit reruns and session state |
 | Indexing workflow | Introduced, not yet demonstrated | Reteach from the product analogy, then trace URL → documents → searchable index |
 | Question-answering workflow | Introduced, not yet demonstrated | Explain question → relevant chunks → generated answer before introducing LlamaIndex terminology |
-| Session state and caching | In progress — reruns understood partly | Learner understands that session state preserves values and Clear chat removes messages; reinforce that the whole script reruns, `setdefault` only fills missing keys, and this code does not pass chat history into the LLM |
+| Session state and caching | Passed (conceptual checkpoint) | Learner correctly explained that state survives reruns, `setdefault` preserves an existing index, and Clear chat removes messages while leaving the index available; the app does not explicitly pass prior chat history to the query engine |
 | Embeddings and semantic similarity | Lesson started | Conceptual explanation added in Section 15; run and record the retrieval experiment before marking complete |
 | LlamaIndex documents, nodes, index and query engine | Pending deep dive | Inspect nodes/metadata and change retrieval settings |
 | Groq generation, tokens and streaming | Pending hands-on lesson | Compare a direct API call with the LlamaIndex path |
@@ -1054,7 +1055,7 @@ The learner should be able to explain what Streamlit renders, why the script rer
 
 ## 22. Lesson 3 checkpoint assessment
 
-**Status: Partially understood. Do not proceed to GitHub ingestion until the learner can explain script reruns and default initialization precisely.**
+**Initial status: Partially understood. The learner subsequently passed the follow-up checkpoint on 29 October 2026; see Section 23.**
 
 ### Answer 1 — Rerun versus server restart
 
@@ -1095,6 +1096,57 @@ Explain these three points without using a memorized definition:
 3. After Clear chat, why can the index still be used, and does the current code send previous chat messages to the LLM when answering a new question?
 
 Only after these are clear should the course move to GitHub ingestion.
+
+
+---
+
+## 23. Lesson 3 checkpoint result
+
+**Status: Passed at the conceptual level (29 October 2026).** The learner answered all three follow-up questions correctly. Move next to GitHub ingestion, while continuing to verify the actual code path rather than relying only on definitions.
+
+### Answer review
+
+1. **Why a rerun does not automatically re-index the repository — Correct.** Streamlit reruns the whole script, but the indexing handler is called only when the Index repository button is reported as clicked in that run. Ordinary reruns use the already stored index instead of automatically calling the indexing handler.
+2. **What st.session_state.setdefault("index", None) does — Correct.** If the key already contains a valid index, setdefault preserves that value. It only inserts None when the key is missing; it does not overwrite an existing value.
+3. **What Clear chat does — Correct.** The code empties st.session_state.messages and reruns the app. It does not erase st.session_state.index, so the repository remains indexed in that session. One important implementation limitation remains: answer(question) passes only the newest question to query_engine.query(question); prior messages are stored/rendered, but aren't explicitly passed as conversational memory.
+
+### Small example that confirms the model
+
+~~~python
+import streamlit as st
+
+if "count" not in st.session_state:
+    st.session_state.count = 0
+
+if st.button("Increase"):
+    st.session_state.count += 1
+
+st.write(st.session_state.count)
+~~~
+
+After the button is clicked, Streamlit reruns the script. The initialization condition is now false because count already exists, so it isn't reset to zero. The click branch increments it, and the updated number is rendered.
+
+### What the learner has demonstrated
+
+The learner can explain the difference between a full script rerun and re-indexing, the insert-if-missing behavior of setdefault, and the separation between the chat history and index in session state. This is a conceptual pass; practical code inspection and experiments are still part of the course.
+
+### Next lesson
+
+Start GitHub ingestion by tracing this concrete path in main.py:
+
+~~~mermaid
+flowchart TD
+    A[User enters GitHub repository URL] --> B[Click Index repository]
+    B --> C[index_repository]
+    C --> D[parse_github_url]
+    D --> E[owner, repository, branch]
+    E --> F[load_repository]
+    F --> G[GitHub reader fetches supported files]
+    G --> H[Documents and metadata returned]
+    H --> I[build_index creates searchable index]
+~~~
+
+Next, learn what a **document** means in LlamaIndex, why RepoGPT filters file extensions, and how the GitHub reader returns repository content before the embedding/indexing step. The next checkpoint should ask the learner to explain this flow in their own words before moving on to embeddings or retrieval.
 
 ---
 
