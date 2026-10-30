@@ -32,6 +32,7 @@
 - [24. Lesson 4 first checkpoint: parsing and ingestion](#24-lesson-4-first-checkpoint-parsing-and-ingestion)
 - [25. Lesson 4: reading supported files from GitHub](#25-lesson-4-reading-supported-files-from-github)
 - [26. Lesson 5: documents and chunks](#26-lesson-5-documents-and-chunks)
+- [27. Lesson 6: embeddings and text vectors](#27-lesson-6-embeddings-and-text-vectors)
 
 ## 1. Project in one minute
 
@@ -414,7 +415,8 @@ Update this table as each teaching session is completed. A topic should be marke
 | Indexing workflow | Passed (conceptual checkpoint) | Learner explained the extension inclusion filter, `loader.load_data(branch=branch)`, documents returned for `build_index()`, and why `.pdf` is omitted by the current configured list; clarify that an inclusion filter is not a guarantee every listed format parses successfully |
 | Question-answering workflow | Introduced, not yet demonstrated | Explain question → relevant chunks → generated answer before introducing LlamaIndex terminology |
 | Session state and caching | Passed (conceptual checkpoint) | Learner correctly explained that state survives reruns, `setdefault` preserves an existing index, and Clear chat removes messages while leaving the index available; the app does not explicitly pass prior chat history to the query engine |
-| Documents, chunks and embeddings | In progress — document/chunk concepts being taught | Explain the difference between reader-returned Documents and smaller Nodes/chunks created by LlamaIndex during `VectorStoreIndex.from_documents()`; verify effective splitter defaults before stating exact chunk settings |
+| Documents and chunks | Passed (conceptual checkpoint) | Learner explained that a Document represents loaded source text and metadata, chunks make retrieval more focused, `VectorStoreIndex.from_documents()` is the exact high-level call, and exact chunk settings are not configured in `main.py` |
+| Embeddings and semantic similarity | In progress | Explain the configured BGE model, how chunks and questions become vectors, and how vector similarity supports retrieval |
 | LlamaIndex documents, nodes, index and query engine | Pending deep dive | Inspect nodes/metadata and change retrieval settings |
 | Groq generation, tokens and streaming | Pending hands-on lesson | Compare a direct API call with the LlamaIndex path |
 | URL parsing and GitHub ingestion tests | Pending hands-on lesson | Add tests for standard, branch-specific and invalid URLs |
@@ -1346,6 +1348,102 @@ flowchart TD
 4. Does `main.py` explicitly set the chunk size and overlap? What should you say in an interview if asked for the exact values?
 
 Do not move to embedding-vector mechanics until the learner can explain these distinctions and point to `build_index()` in the source.
+
+### 26.7 Checkpoint result
+
+**Status: Passed at the conceptual level (30 October 2026).**
+
+1. **Document — Correct.** The learner said it is an ordinary text representation of loaded files, rather than necessarily a document-file format. Precision: a LlamaIndex Document is a structured object containing text and metadata, not merely a raw string.
+2. **Why split into chunks — Correct.** Smaller units can make search more focused and avoid treating a huge file as one indivisible retrieval unit. Very small chunks can lose surrounding context, and boundaries need not align with code functions.
+3. **Indexing call — Correct with naming correction.** The exact call is `VectorStoreIndex.from_documents(...)` (plural `documents`). It accepts Documents and invokes LlamaIndex's high-level ingestion/index-creation path.
+4. **Chunk size and overlap — Correct.** `main.py` does not explicitly set these values. Do not invent numerical values; explain that the effective splitter configuration comes from LlamaIndex defaults and runtime configuration unless verified at runtime.
+
+The learner can distinguish a loaded Document from a chunk/Node and describe why chunking helps retrieval. Proceed to embedding vectors.
+
+---
+
+## 27. Lesson 6: embeddings and text vectors
+
+**Goal:** Understand how RepoGPT represents chunks numerically so related code can be found by meaning, even when a question does not repeat the exact words in the source.
+
+### 27.1 What is an embedding?
+
+An embedding is a numerical vector (an ordered list of numbers) produced by a model from text. It captures learned patterns that can be used to compare semantic similarity. It is not a human-readable summary, and individual vector dimensions should not be interpreted as simple labels.
+
+A useful intuition is to imagine text represented as points in a high-dimensional space. Texts with related meanings can often be represented by vectors that are closer together than vectors for unrelated texts. This is an intuition, not a guarantee for every pair of texts.
+
+### 27.2 Which embedding model does RepoGPT use?
+
+The source defines `EMBED_MODEL = os.getenv("EMBED_MODEL", "BAAI/bge-small-en-v1.5")`. The default is `BAAI/bge-small-en-v1.5`; an `EMBED_MODEL` environment variable can override it.
+
+The `get_embedding_model()` function returns `HuggingFaceEmbedding(model_name=EMBED_MODEL)`. It is decorated with `@st.cache_resource(show_spinner=False)`, allowing Streamlit to reuse the loaded model resource according to its cache rules. The project comment says the model runs locally after download. A first download still requires access to retrieve model files.
+
+### 27.3 How is the embedding model configured?
+
+The source's `configure_models(groq_api_key)` function assigns two separate components:
+
+- `Settings.embed_model = get_embedding_model()` selects the local Hugging Face model for text embeddings.
+- `Settings.llm = Groq(...)` configures the Groq-hosted language model for answer generation.
+
+Do not confuse these responsibilities. The embedding model converts text to vectors; it does not generate the final chat answer. The LLM generates the natural-language answer; it does not replace the embedding model's vector representation.
+
+A source-specific nuance: `configure_models()` checks for a Groq API key before configuring either component. Thus, the current indexing path requires the Groq key as part of this shared setup, even though the embedding calculation itself is local and is not a Groq embedding API call.
+
+### 27.4 When does RepoGPT create embeddings?
+
+In `build_index()`, RepoGPT first calls `configure_models(groq_api_key)` and then calls `VectorStoreIndex.from_documents(_docs, show_progress=False)`. The Documents are transformed into Nodes/chunks, and LlamaIndex uses the configured `Settings.embed_model` to create vector representations as part of the indexing pipeline.
+
+The same embedding model is used when the user submits a question. The query engine represents the question as a vector compatible with the indexed chunk vectors, then searches for relevant Nodes. The configured embedding model therefore participates in both indexing time and query time.
+
+### 27.5 Small illustrative example
+
+Consider these two passages:
+
+- Chunk A: “The function calculates the final shopping cart price.”
+- Chunk B: “The method computes the total amount payable for items.”
+
+The wording differs, but the meanings are related. An embedding model can represent them with vectors that are relatively close in the embedding space. A question such as “Where is the cart total calculated?” may retrieve Chunk B even if it does not repeat the exact words from the question.
+
+The following values are made-up to illustrate the shape of an embedding; they are not actual BGE outputs:
+
+~~~text
+embedding(Chunk A) = [0.12, -0.40, 0.77, ...]
+embedding(Chunk B) = [0.10, -0.38, 0.75, ...]
+~~~
+
+Do not claim the model understands code exactly as a human does. It produces representations learned during model training. Retrieval quality depends on model suitability, chunking, query phrasing and other configuration.
+
+### 27.6 Indexing and querying use embeddings
+
+~~~mermaid
+flowchart TD
+    A[Repository Documents] --> B[Split into Nodes / chunks]
+    B --> C[Hugging Face embedding model]
+    C --> D[Store vectors with their Nodes in the index]
+    E[User question] --> F[Same embedding model]
+    F --> G[Question vector]
+    D --> H[Similarity search]
+    G --> H
+    H --> I[Top relevant Nodes]
+~~~
+
+### 27.7 What to remember
+
+- An embedding is a vector representation of text.
+- Similarity search compares the question vector with indexed chunk vectors.
+- RepoGPT defaults to `BAAI/bge-small-en-v1.5`, loaded through `HuggingFaceEmbedding`.
+- `Settings.embed_model` and `Settings.llm` have different jobs.
+- Embeddings are created for indexed chunks and for the user's query.
+
+### 27.8 Checkpoint
+
+1. What does an embedding model produce from a text chunk?
+2. Why can semantic search find a relevant chunk even if the user's question does not contain the exact words used in the source code?
+3. Which embedding model does RepoGPT use by default, and which function creates the Hugging Face embedding object?
+4. What is the difference between `Settings.embed_model` and `Settings.llm`?
+5. Does RepoGPT use the embedding model only when building the index, or also when processing a user's question?
+
+Do not move to vector index internals and retrieval scoring until the learner can explain these points in plain language.
 
 ---
 
