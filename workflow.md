@@ -410,7 +410,7 @@ Update this table as each teaching session is completed. A topic should be marke
 | Repository structure and README | Reviewed | Current `main` branch tree and README inspected |
 | Product purpose and major component roles | Passed with corrections | Learner correctly explained GitHub, embeddings, LLM, Streamlit, and indexing vs answering; clarified in-memory index versus persistent vector database |
 | Application startup and function call graph | Passed (conceptual checkpoint) | Learner explained function definition vs call, identified `parse_github_url()` as a custom function, and corrected the entry-point execution order; next learn Streamlit reruns and session state |
-| Indexing workflow | In progress — URL parsing checkpoint passed | Learner correctly distinguished branch `develop` from URL segment `tree`; next checkpoint is to explain the extension filter and reader flow from source code |
+| Indexing workflow | Passed (conceptual checkpoint) | Learner explained the extension inclusion filter, `loader.load_data(branch=branch)`, documents returned for `build_index()`, and why `.pdf` is omitted by the current configured list; clarify that an inclusion filter is not a guarantee every listed format parses successfully |
 | Question-answering workflow | Introduced, not yet demonstrated | Explain question → relevant chunks → generated answer before introducing LlamaIndex terminology |
 | Session state and caching | Passed (conceptual checkpoint) | Learner correctly explained that state survives reruns, `setdefault` preserves an existing index, and Clear chat removes messages while leaving the index available; the app does not explicitly pass prior chat history to the query engine |
 | Embeddings and semantic similarity | Lesson started | Conceptual explanation added in Section 15; run and record the retrieval experiment before marking complete |
@@ -1244,15 +1244,18 @@ flowchart TD
 
 `@st.cache_resource(show_spinner=False)` decorates `load_repository()`. Streamlit can reuse a cached result when the function's cache key matches, rather than repeating the same load operation. This is separate from session state: session state holds values for a user's session, while a resource cache reuses results/resources according to Streamlit's cache rules. Cache-key details and invalidation will be handled in the caching lesson; do not assume that the cache automatically detects every remote repository content change.
 
-### 25.5 Checkpoint — answer before proceeding
+### 25.5 Checkpoint — result
 
-1. Why does RepoGPT pass `FILE_EXTENSIONS` with `FilterType.INCLUDE` to the reader?
-2. Which line actually asks the reader to fetch/load the selected branch, and what does `return` do with the result?
-3. Does `load_repository()` create the vector index, or does it return documents for `build_index()`?
-4. If a repository has a useful `.pdf` file but `.pdf` is not in the extension list, should you assume this configured filter will include it?
+**Status: Passed at the conceptual level (30 October 2026).**
 
-Do not continue to embedding mechanics until these can be explained in plain language.
+1. **Why use `FILE_EXTENSIONS` with `FilterType.INCLUDE` — Correct with a wording refinement.** The list is an inclusion filter that limits which file extensions the reader is configured to include. It does not guarantee that every included file is successfully parsed or indexed.
+2. **Which line loads the selected branch — Correct.** `return loader.load_data(branch=branch)` calls the reader's `load_data()` method for the selected branch and passes the returned value back to the caller.
+3. **Does `load_repository()` build the vector index — Correct.** It returns loaded document objects. `build_index()` is the next stage that constructs the vector index from those documents.
+4. **What happens to `design.pdf` — Correct with a wording refinement.** Since `.pdf` is not in the current `FILE_EXTENSIONS` inclusion list, the configured filter does not request it. This should not be generalized into a claim that PDF files can never be parsed by any reader or configuration.
 
+### Completion note
+
+The learner can now distinguish repository fetching from index construction and explain the reader's configured inclusion filter. Proceed to Documents, chunks and embeddings. Keep the format-support nuance: inclusion in the list is a filter decision, not a guarantee of successful parsing.
 ---
 
 ## Source references
