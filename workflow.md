@@ -33,6 +33,7 @@
 - [25. Lesson 4: reading supported files from GitHub](#25-lesson-4-reading-supported-files-from-github)
 - [26. Lesson 5: documents and chunks](#26-lesson-5-documents-and-chunks)
 - [27. Lesson 6: embeddings and text vectors](#27-lesson-6-embeddings-and-text-vectors)
+- [28. Lesson 7: vector index and retrieval](#28-lesson-7-vector-index-and-retrieval)
 
 ## 1. Project in one minute
 
@@ -416,7 +417,8 @@ Update this table as each teaching session is completed. A topic should be marke
 | Question-answering workflow | Introduced, not yet demonstrated | Explain question → relevant chunks → generated answer before introducing LlamaIndex terminology |
 | Session state and caching | Passed (conceptual checkpoint) | Learner correctly explained that state survives reruns, `setdefault` preserves an existing index, and Clear chat removes messages while leaving the index available; the app does not explicitly pass prior chat history to the query engine |
 | Documents and chunks | Passed (conceptual checkpoint) | Learner explained that a Document represents loaded source text and metadata, chunks make retrieval more focused, `VectorStoreIndex.from_documents()` is the exact high-level call, and exact chunk settings are not configured in `main.py` |
-| Embeddings and semantic similarity | In progress | Explain the configured BGE model, how chunks and questions become vectors, and how vector similarity supports retrieval |
+| Embeddings and semantic similarity | Passed with two corrections (conceptual checkpoint) | Learner explained text-to-vector conversion, semantic similarity, and use at indexing/query time; clarified that `get_embedding_model()` creates the Hugging Face object and the LLM receives retrieved text rather than raw embedding vectors |
+| Vector index and retrieval | In progress | Trace `VectorStoreIndex.from_documents()`, `as_query_engine()`, similarity retrieval and the top-k setting; distinguish selected Nodes from the final generated answer |
 | LlamaIndex documents, nodes, index and query engine | Pending deep dive | Inspect nodes/metadata and change retrieval settings |
 | Groq generation, tokens and streaming | Pending hands-on lesson | Compare a direct API call with the LlamaIndex path |
 | URL parsing and GitHub ingestion tests | Pending hands-on lesson | Add tests for standard, branch-specific and invalid URLs |
@@ -1445,6 +1447,90 @@ flowchart TD
 
 Do not move to vector index internals and retrieval scoring until the learner can explain these points in plain language.
 
+### 27.9 Checkpoint result
+
+**Status: Passed at the conceptual level with two naming/flow corrections (30 October 2026).**
+
+1. **What an embedding model produces — Correct.** It produces a numerical vector representation of the input text.
+2. **Semantic similarity — Correct, with a wording refinement.** The learner correctly explained that semantically related questions and source text can have relatively close vector representations even when their words differ. Avoid describing the model as simply assigning independent numerical features to each word; it produces learned contextual text representations.
+3. **Default model and object-creation function — Partially correct.** The learner named `BAAI/bge-small-en-v1.5` correctly. The function returning the Hugging Face object is `get_embedding_model()`, which calls `HuggingFaceEmbedding(model_name=EMBED_MODEL)`. `VectorStoreIndex.from_documents()` is the high-level ingestion/index-creation call that uses the configured embedding model; it is not the function that creates the Hugging Face model object.
+4. **Embedding model versus LLM — Mostly correct.** `Settings.embed_model` produces vector representations. `Settings.llm` generates the natural-language answer. More precisely, the LLM receives the user's question and retrieved text context, not the raw embedding vectors as its answer-generation input.
+5. **When embeddings are used — Correct.** The embedding model is used during indexing to represent the Nodes and during query processing to represent the user's question.
+
+The learner has the foundational model distinction needed to move to the vector index and retrieval stages.
+
+---
+
+## 28. Lesson 7: vector index and retrieval
+
+**Goal:** Understand what `VectorStoreIndex` represents, how RepoGPT asks it to retrieve relevant chunks, and what the top-k setting controls.
+
+### 28.1 What is a vector index?
+
+After Documents are split into Nodes and the embedding model creates vectors for those Nodes, the application needs a searchable structure that keeps the vectors associated with their source text/metadata. A vector index provides this structure and the operations needed to retrieve relevant Nodes from a query.
+
+In RepoGPT, `build_index()` returns the result of `VectorStoreIndex.from_documents(_docs, show_progress=False)`. The code does not configure an external persistent vector database; it uses LlamaIndex's default in-memory vector-index setup. The resulting index object is saved in `st.session_state.index` after indexing succeeds.
+
+### 28.2 What happens when a user asks a question?
+
+The `answer(question)` function obtains the current index and calls:
+
+~~~python
+query_engine = st.session_state.index.as_query_engine(
+    similarity_top_k=st.session_state.top_k,
+    streaming=True,
+)
+~~~
+
+The query engine provides the question-answering path over the index. Conceptually, it uses the configured embedding model to represent the question, retrieves Nodes with similar/relevant vector representations, and makes the retrieved text available to the answer-synthesis stage.
+
+### 28.3 What does top-k mean?
+
+`similarity_top_k` controls how many of the highest-ranked relevant Nodes the retriever should return for the query. If top-k is 5, the system requests up to five retrieved Nodes; this does not mean five files, five answers, or five whole Documents. A single file may contribute more than one Node.
+
+In RepoGPT, the sidebar slider is labeled `Chunks retrieved per question`, has a minimum of 2 and maximum of 15, and stores the chosen value in `st.session_state.top_k`. The default session value is 5. `answer()` passes that chosen value to `similarity_top_k` when it creates the query engine.
+
+A larger top-k may provide more evidence/context, but it can also introduce less relevant material, increase prompt size/token use, and affect latency. A smaller top-k can be more focused but may omit a relevant chunk. The best value depends on the repository and question; test rather than assuming one value is always best.
+
+### 28.4 Retrieval is not answer generation
+
+Keep these stages separate:
+
+- **Embedding/query representation:** convert the user's question into a vector using the configured embedding model.
+- **Retrieval:** select relevant Nodes from the indexed repository.
+- **Answer synthesis:** the LLM receives the question and retrieved text context and writes a natural-language response using the prompt.
+
+The LLM is not expected to inspect the entire GitHub repository directly for every question. Retrieval supplies a limited set of relevant source chunks as context. The raw embedding vectors are used for search; the language model's answer is based on the retrieved text and the question.
+
+~~~mermaid
+flowchart TD
+    A[User question] --> B[Embedding model creates query vector]
+    C[Vector index: stored Node vectors and text] --> D[Similarity retrieval]
+    B --> D
+    D --> E[Top-k relevant Nodes]
+    E --> F[Retrieved text plus question]
+    F --> G[Groq-hosted LLM]
+    G --> H[Natural-language answer]
+~~~
+
+### 28.5 Where to see it in RepoGPT
+
+- `build_index()` creates the `VectorStoreIndex` from the loaded Documents.
+- After successful indexing, `index_repository()` saves the object as `st.session_state.index`.
+- `render_sidebar()` provides the top-k slider with values 2–15 and stores the selected value in `st.session_state.top_k`.
+- `answer(question)` calls `st.session_state.index.as_query_engine(...)` with `similarity_top_k=st.session_state.top_k` and `streaming=True`.
+- `query_engine.query(question)` runs the retrieval plus response-synthesis pipeline.
+- `response.source_nodes` is returned to the UI so `render_sources()` can show source file paths from node metadata.
+
+### 28.6 Checkpoint
+
+1. What does the vector index keep/search that makes it possible to find relevant chunks?
+2. In RepoGPT, what does `similarity_top_k=st.session_state.top_k` control?
+3. If top-k is 5, does that mean five files or up to five retrieved Nodes/chunks? Explain the difference.
+4. What is the difference between retrieval and answer synthesis? Which component performs the final natural-language generation?
+5. Why might increasing top-k help in some questions but hurt in others?
+
+Before moving to prompt construction, Groq streaming and the rest of the question-answering function, make sure the learner can separate vector search from LLM generation.
 ---
 
 ## Source references
