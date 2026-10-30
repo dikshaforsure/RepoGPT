@@ -31,6 +31,7 @@
 - [23. Lesson 3 checkpoint result](#23-lesson-3-checkpoint-result)
 - [24. Lesson 4 first checkpoint: parsing and ingestion](#24-lesson-4-first-checkpoint-parsing-and-ingestion)
 - [25. Lesson 4: reading supported files from GitHub](#25-lesson-4-reading-supported-files-from-github)
+- [26. Lesson 5: documents and chunks](#26-lesson-5-documents-and-chunks)
 
 ## 1. Project in one minute
 
@@ -413,7 +414,7 @@ Update this table as each teaching session is completed. A topic should be marke
 | Indexing workflow | Passed (conceptual checkpoint) | Learner explained the extension inclusion filter, `loader.load_data(branch=branch)`, documents returned for `build_index()`, and why `.pdf` is omitted by the current configured list; clarify that an inclusion filter is not a guarantee every listed format parses successfully |
 | Question-answering workflow | Introduced, not yet demonstrated | Explain question → relevant chunks → generated answer before introducing LlamaIndex terminology |
 | Session state and caching | Passed (conceptual checkpoint) | Learner correctly explained that state survives reruns, `setdefault` preserves an existing index, and Clear chat removes messages while leaving the index available; the app does not explicitly pass prior chat history to the query engine |
-| Embeddings and semantic similarity | Lesson started | Conceptual explanation added in Section 15; run and record the retrieval experiment before marking complete |
+| Documents, chunks and embeddings | In progress — document/chunk concepts being taught | Explain the difference between reader-returned Documents and smaller Nodes/chunks created by LlamaIndex during `VectorStoreIndex.from_documents()`; verify effective splitter defaults before stating exact chunk settings |
 | LlamaIndex documents, nodes, index and query engine | Pending deep dive | Inspect nodes/metadata and change retrieval settings |
 | Groq generation, tokens and streaming | Pending hands-on lesson | Compare a direct API call with the LlamaIndex path |
 | URL parsing and GitHub ingestion tests | Pending hands-on lesson | Add tests for standard, branch-specific and invalid URLs |
@@ -1256,6 +1257,96 @@ flowchart TD
 ### Completion note
 
 The learner can now distinguish repository fetching from index construction and explain the reader's configured inclusion filter. Proceed to Documents, chunks and embeddings. Keep the format-support nuance: inclusion in the list is a filter decision, not a guarantee of successful parsing.
+---
+
+## 26. Lesson 5: documents and chunks
+
+**Goal:** Understand the content objects returned by the GitHub reader and why LlamaIndex divides long documents into smaller retrievable units.
+
+### 26.1 What is a Document?
+
+A LlamaIndex `Document` is a data object representing source content. It contains text and can carry metadata, such as the original repository file path. It is not necessarily a Microsoft Word document or PDF. In RepoGPT, `load_repository()` returns the document objects produced by `GithubRepositoryReader`; the app does not manually construct each `Document` in `main.py`.
+
+Example mental model for a fetched source file:
+
+~~~text
+Document
+  text: "def calculate_total(items): ..."
+  metadata:
+    file_path: "src/cart.py"
+~~~
+
+The exact metadata keys depend on the reader. The example above is illustrative; inspect an actual returned object before assuming the precise key name.
+
+### 26.2 Why split a Document into chunks?
+
+A repository file can be long and contain several unrelated topics. Sending the entire file to the model for every question would be inefficient and could bury the relevant lines inside unrelated content.
+
+A chunk is a smaller piece of the document. LlamaIndex commonly represents each chunk as a `Node`. A Node contains the chunk text and metadata, and maintains a relationship to the parent Document.
+
+Example using ordinary explanatory text:
+
+~~~text
+Original Document: cart.py
+  Chunk 1: functions that add items to a cart
+  Chunk 2: functions that calculate subtotal
+  Chunk 3: functions that apply discounts
+~~~
+
+This example explains the idea only. Real chunk boundaries are determined by the configured text splitter and may not align perfectly with function or class boundaries. RepoGPT does not configure a syntax-aware Python parser for chunking in `main.py`.
+
+### 26.3 Where does chunking happen in RepoGPT?
+
+The relevant source is:
+
+~~~python
+@st.cache_resource(show_spinner=False)
+def build_index(_docs, groq_api_key: str, cache_key: str) -> VectorStoreIndex:
+    configure_models(groq_api_key)
+    return VectorStoreIndex.from_documents(_docs, show_progress=False)
+~~~
+
+`build_index()` does not contain a manual loop that splits each Document. It passes the Documents to LlamaIndex's high-level `VectorStoreIndex.from_documents()` method. LlamaIndex's ingestion/transformation pipeline turns Documents into smaller Nodes using its configured text splitter, then prepares those Nodes for indexing.
+
+RepoGPT calls `configure_models()` immediately before this. That function configures `Settings.llm` with the Groq model and `Settings.embed_model` with the Hugging Face embedding model returned by `get_embedding_model()`. The repository code does not explicitly pass a `transformations` list to `from_documents()`, does not instantiate a `SentenceSplitter`, and does not set `Settings.chunk_size` or `Settings.chunk_overlap` in `main.py`.
+
+**Important source-grounding note:** Do not claim a specific chunk size or overlap as a RepoGPT configuration based only on this repository source. The actual values come from the installed LlamaIndex version and its effective global/default settings. The dependency declaration is `llama-index>=0.12.0`, not an exact pin, and this repository does not include a lockfile fixing the full resolved version set.
+
+### 26.4 Why smaller chunks help retrieval
+
+When a user asks a question, RepoGPT can search for Nodes relevant to that question rather than treating an entire repository file as one indivisible unit. This can make the retrieved context more focused and reduce unrelated text sent to the language model.
+
+There is a trade-off: chunks that are too small can lose important surrounding context, while chunks that are too large can include unrelated material. Overlap between adjacent chunks can help preserve context near a split boundary, but the exact overlap is determined by the effective splitter configuration.
+
+~~~mermaid
+flowchart TD
+    A[GitHub reader loads source file] --> B[Document: full text and metadata]
+    B --> C[LlamaIndex text-splitting transformation]
+    C --> D[Node / chunk 1]
+    C --> E[Node / chunk 2]
+    C --> F[Node / chunk 3]
+    D --> G[Embedding and indexing stage]
+    E --> G
+    F --> G
+~~~
+
+### 26.5 What to remember
+
+- A **Document** represents the loaded source content and metadata.
+- A **chunk** is a smaller piece of that content.
+- In LlamaIndex, a chunk is commonly represented as a **Node**.
+- RepoGPT delegates Document-to-Node splitting to `VectorStoreIndex.from_documents()` rather than implementing it manually in `main.py`.
+- The repository configures the embedding model but does not explicitly configure chunk size or overlap.
+
+### 26.6 Checkpoint
+
+1. Is a LlamaIndex Document necessarily a `.docx` file, or can it represent text from `src/cart.py`?
+2. Why is it useful to split a long repository file into smaller chunks before retrieval?
+3. In RepoGPT, which call receives the fetched Documents and handles the high-level transformation/indexing path?
+4. Does `main.py` explicitly set the chunk size and overlap? What should you say in an interview if asked for the exact values?
+
+Do not move to embedding-vector mechanics until the learner can explain these distinctions and point to `build_index()` in the source.
+
 ---
 
 ## Source references
