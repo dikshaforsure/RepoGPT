@@ -38,6 +38,7 @@
 - [30. Lesson 8: Groq, prompts, synthesis and streaming](#30-lesson-8-groq-prompts-synthesis-and-streaming)
 - [31. Lesson 8 checkpoint result](#31-lesson-8-checkpoint-result)
 - [32. Lesson 9: complete end-to-end walkthrough](#32-lesson-9-complete-end-to-end-walkthrough)
+- [33. Lesson 10: hands-on retrieval experiment](#33-lesson-10-hands-on-retrieval-experiment)
 
 ## 1. Project in one minute
 
@@ -1768,6 +1769,52 @@ sequenceDiagram
 4. Name three real limitations or trade-offs in this implementation.
 
 After the learner can walk through both phases, continue to hands-on app experiments and a code-specific review of cache behavior, errors, security and interview questions.
+## 33. Lesson 10: hands-on retrieval experiment
+
+**Goal:** Observe how the top-k setting affects retrieved source Nodes and answer quality in the already deployed RepoGPT app. Do not change code or deployment settings during this experiment.
+
+### 33.1 Keep the experiment controlled
+
+Use the same indexed repository and exactly the same question for each run. Change only the top-k slider. The current source defines a slider range of 2–15 and initializes top-k to 5.
+
+Suggested question:
+
+> Where is user authentication implemented, and how does the application verify the user's credentials?
+
+Choose a question that is actually relevant to the repository you indexed. If that repository does not contain authentication, choose one concrete feature that does exist and keep its wording identical across all runs.
+
+### 33.2 Run the comparison
+
+1. Set top-k to 2 and submit the question. Record the answer, displayed source file paths, and approximate response time.
+2. Set top-k to 5 and submit the exact same question. Record the same details.
+3. Set top-k to 10 and submit the exact same question. Record the same details.
+4. Open the cited source files in GitHub and check whether the answer's claims are supported by the code.
+
+Do not assume the slider value equals the number of files. It controls the number of retrieved Nodes/chunks requested. Several Nodes can come from one file, and the actual number returned can be lower than the requested top-k.
+
+### 33.3 Record observations
+
+| Top-k | Answer useful/complete? | Were source files relevant? | Any irrelevant context? | Approximate response time |
+|---:|---|---|---|---|
+| 2 | To be observed | To be observed | To be observed | To be observed |
+| 5 | To be observed | To be observed | To be observed |
+| 10 | To be observed | To be observed | To be observed |
+
+### 33.4 Interpret the result carefully
+
+- A larger top-k can include additional evidence and improve completeness.
+- A larger top-k can also add irrelevant chunks, increase context/token use and make the answer less focused.
+- A smaller top-k can be focused but may omit a relevant Node.
+- The LLM can produce slightly different wording across runs even with the same question; compare factual coverage and source support, not phrasing alone.
+- Response-time measurements are approximate and can be affected by network, model service load, caching and streaming.
+
+### 33.5 Experiment checkpoint
+
+Report: the repository you tested, the exact question, top-k values tested, source paths returned for each value, which setting gave the best supported answer, and one limitation or unexpected observation. Do not mark the experiment complete until the deployed app has actually been tested.
+
+### Status
+
+**Not yet performed.** Await the learner's observations before recording conclusions. The end-to-end teach-back checkpoint in Section 32 remains pending and should be completed during consolidation.
 ---
 
 ## Source references
