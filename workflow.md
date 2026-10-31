@@ -34,6 +34,8 @@
 - [26. Lesson 5: documents and chunks](#26-lesson-5-documents-and-chunks)
 - [27. Lesson 6: embeddings and text vectors](#27-lesson-6-embeddings-and-text-vectors)
 - [28. Lesson 7: vector index and retrieval](#28-lesson-7-vector-index-and-retrieval)
+- [29. Lesson 7 checkpoint result](#29-lesson-7-checkpoint-result)
+- [30. Lesson 8: Groq, prompts, synthesis and streaming](#30-lesson-8-groq-prompts-synthesis-and-streaming)
 
 ## 1. Project in one minute
 
@@ -414,11 +416,11 @@ Update this table as each teaching session is completed. A topic should be marke
 | Product purpose and major component roles | Passed with corrections | Learner correctly explained GitHub, embeddings, LLM, Streamlit, and indexing vs answering; clarified in-memory index versus persistent vector database |
 | Application startup and function call graph | Passed (conceptual checkpoint) | Learner explained function definition vs call, identified `parse_github_url()` as a custom function, and corrected the entry-point execution order; next learn Streamlit reruns and session state |
 | Indexing workflow | Passed (conceptual checkpoint) | Learner explained the extension inclusion filter, `loader.load_data(branch=branch)`, documents returned for `build_index()`, and why `.pdf` is omitted by the current configured list; clarify that an inclusion filter is not a guarantee every listed format parses successfully |
-| Question-answering workflow | Introduced, not yet demonstrated | Explain question → relevant chunks → generated answer before introducing LlamaIndex terminology |
+| Question-answering workflow | In progress — conceptual path taught | Study exact `QA_PROMPT`, query-engine orchestration, Groq generation, streamed output, source-node metadata and UI rendering from `main.py` |
 | Session state and caching | Passed (conceptual checkpoint) | Learner correctly explained that state survives reruns, `setdefault` preserves an existing index, and Clear chat removes messages while leaving the index available; the app does not explicitly pass prior chat history to the query engine |
 | Documents and chunks | Passed (conceptual checkpoint) | Learner explained that a Document represents loaded source text and metadata, chunks make retrieval more focused, `VectorStoreIndex.from_documents()` is the exact high-level call, and exact chunk settings are not configured in `main.py` |
 | Embeddings and semantic similarity | Passed with two corrections (conceptual checkpoint) | Learner explained text-to-vector conversion, semantic similarity, and use at indexing/query time; clarified that `get_embedding_model()` creates the Hugging Face object and the LLM receives retrieved text rather than raw embedding vectors |
-| Vector index and retrieval | In progress | Trace `VectorStoreIndex.from_documents()`, `as_query_engine()`, similarity retrieval and the top-k setting; distinguish selected Nodes from the final generated answer |
+| Vector index and retrieval | Passed with refinements (conceptual checkpoint) | Learner correctly explained top-k, Nodes versus files, and retrieval versus LLM generation; refined the role of the index and the trade-off between focused low top-k and broader, potentially noisier high top-k |
 | LlamaIndex documents, nodes, index and query engine | Pending deep dive | Inspect nodes/metadata and change retrieval settings |
 | Groq generation, tokens and streaming | Pending hands-on lesson | Compare a direct API call with the LlamaIndex path |
 | URL parsing and GitHub ingestion tests | Pending hands-on lesson | Add tests for standard, branch-specific and invalid URLs |
@@ -1531,6 +1533,128 @@ flowchart TD
 5. Why might increasing top-k help in some questions but hurt in others?
 
 Before moving to prompt construction, Groq streaming and the rest of the question-answering function, make sure the learner can separate vector search from LLM generation.
+## 29. Lesson 7 checkpoint result
+
+**Status: Passed with refinements at the conceptual level (31 October 2026).**
+
+1. **What the vector index organizes — Correct idea, needs precision.** It provides a searchable structure for vector representations associated with Nodes, their text and metadata. Avoid saying only that it indexes 'indexing components'.
+2. **`similarity_top_k` — Correct.** It controls how many of the highest-ranked relevant Nodes/chunks the retriever is asked to return.
+3. **Top-k 5 — Correct.** It means up to five retrieved Nodes/chunks, not necessarily five files. More than one chunk can originate from a single source file.
+4. **Retrieval versus generation — Correct.** Retrieval finds relevant repository chunks; the Groq-hosted LLM uses the retrieved textual context and question to generate the natural-language answer.
+5. **Top-k trade-off — Correct idea, direction clarified.** Higher top-k can provide additional useful evidence but can also introduce irrelevant context and distract the LLM. Lower top-k can keep context focused but may omit necessary evidence. The best setting depends on the question and corpus.
+
+The learner can now separate index construction, query retrieval, and answer generation. Proceed to inspect the exact answer-generation path in `main.py`.
+
+---
+
+## 30. Lesson 8: Groq, prompts, synthesis and streaming
+
+**Goal:** Trace how RepoGPT turns retrieved source Nodes into the final answer and shows the answer and source paths in Streamlit.
+
+### 30.1 Two models, two different jobs
+
+`configure_models(groq_api_key)` configures `Settings.embed_model` using `get_embedding_model()` and `Settings.llm` using the LlamaIndex Groq integration. The embedding model represents text as vectors for semantic retrieval. The Groq-hosted LLM generates the natural-language answer using the question and retrieved text context.
+
+The current default LLM name is taken from `GROQ_MODEL`, defaulting to `openai/gpt-oss-120b`. `configure_models()` passes this model name, the Groq API key, and `temperature=0.1` to `Groq(...)`. The model name can be overridden by environment configuration.
+
+### 30.2 What is a prompt?
+
+A prompt is the instructions and input context supplied to a language model. RepoGPT defines `QA_PROMPT` as a LlamaIndex `PromptTemplate`. It tells the model to behave like a senior engineer explaining a codebase, use the supplied repository excerpts, treat code/comments as data rather than overriding instructions, cite relevant file paths, show short snippets when useful, and say plainly when the excerpts do not contain the answer.
+
+The template includes two important placeholders:
+
+- `{context_str}` — the retrieved repository text supplied to the answer-synthesis step.
+- `{query_str}` — the user's actual question.
+
+LlamaIndex fills these placeholders as it prepares the LLM request. The prompt is a useful instruction for grounding answers, but prompt text alone is not a complete security boundary; generated claims still need source verification.
+
+### 30.3 Trace the exact `answer()` function
+
+The current implementation is:
+
+~~~python
+def answer(question: str) -> tuple[str, list]:
+    groq_key = get_secret(st.session_state.groq_key, "GROQ_API_KEY")
+    configure_models(groq_key)
+
+    query_engine = st.session_state.index.as_query_engine(
+        similarity_top_k=st.session_state.top_k,
+        streaming=True,
+    )
+    query_engine.update_prompts(
+        {"response_synthesizer:text_qa_template": QA_PROMPT}
+    )
+    response = query_engine.query(question)
+    answer_text = st.write_stream(response.response_gen)
+    return answer_text, response.source_nodes
+~~~
+
+Line-by-line meaning:
+
+1. `get_secret(...)` resolves the Groq API key from the session input or environment configuration.
+2. `configure_models(groq_key)` configures the Groq LLM and local Hugging Face embedding model.
+3. `st.session_state.index.as_query_engine(...)` creates a query engine over the current index.
+4. `similarity_top_k=st.session_state.top_k` supplies the selected retrieval depth.
+5. `streaming=True` asks the query engine to stream generated response tokens/chunks rather than waiting for the complete response before yielding it.
+6. `update_prompts(...)` supplies RepoGPT's custom `QA_PROMPT` for the response synthesizer's text QA template.
+7. `query_engine.query(question)` runs the LlamaIndex query pipeline: retrieve relevant Nodes and synthesize a response using the query and retrieved context.
+8. `st.write_stream(response.response_gen)` consumes the response generator and displays the generated answer progressively in the Streamlit UI. It returns the accumulated displayed text to `answer_text`.
+9. `return answer_text, response.source_nodes` returns two things: the answer text and the source Nodes used by the response pipeline.
+
+The important distinction: `answer()` does not manually call the Groq HTTP API or manually search all vectors. It delegates the query orchestration to LlamaIndex's query engine, with the configured LLM and embedding model.
+
+### 30.4 What does `response.source_nodes` mean?
+
+The query response includes source Nodes associated with the retrieved context. RepoGPT passes those Nodes back to the UI so it can show where the information came from. These source Nodes are not the same thing as a guarantee of exact line-number citations.
+
+### 30.5 How are source file paths displayed?
+
+`render_sources(source_nodes)` loops through the source Nodes and looks in each Node's metadata for `file_path`; if absent, it tries `file_name`; if both are absent, it uses `unknown`. It collects unique paths and displays them inside a Streamlit expander titled `Sources (N files)`.
+
+The UI therefore displays unique file paths, not precise line numbers or highlighted code ranges. A path tells the developer which file to inspect, but the answer still needs to be checked against that source.
+
+### 30.6 How does the answer return to the user?
+
+Inside `main()`, after the user submits `st.chat_input`, RepoGPT appends and displays the user message. It calls `answer(question)` inside a `try` block, renders the returned source paths, appends the assistant answer and sources to `st.session_state.messages`, and offers a Markdown download using `st.download_button`.
+
+If an exception occurs, the UI shows an error and suggests checking the Groq API key, model access, quota and network connection. The code does not pass the earlier message list to `answer()`; each call receives only the latest `question`.
+
+### 30.7 Complete question-answering flow
+
+~~~mermaid
+sequenceDiagram
+    actor User
+    participant UI as Streamlit
+    participant A as answer(question)
+    participant QE as LlamaIndex query engine
+    participant EM as BGE embedding model
+    participant LLM as Groq LLM
+    participant R as render_sources
+    User->>UI: Submit question
+    UI->>A: answer(latest question)
+    A->>QE: Create query engine with top-k and streaming
+    A->>QE: Attach QA_PROMPT and query(question)
+    QE->>EM: Embed the query
+    EM-->>QE: Query vector
+    QE->>QE: Retrieve relevant Nodes
+    QE->>LLM: Question + retrieved text + prompt
+    LLM-->>QE: Stream generated response
+    QE-->>A: Response generator and source_nodes
+    A-->>UI: Stream answer text and return sources
+    UI->>R: Render source file paths
+    UI->>UI: Save message and offer Markdown download
+~~~
+
+### 30.8 Checkpoint
+
+1. What is a prompt, and what do `{context_str}` and `{query_str}` represent in `QA_PROMPT`?
+2. What does `Settings.llm = Groq(...)` configure, and how is that different from `Settings.embed_model`?
+3. In `answer()`, what does `query_engine.query(question)` orchestrate?
+4. Why does RepoGPT set `streaming=True`, and what does `st.write_stream(response.response_gen)` do?
+5. What is returned by `answer()`, and how does `render_sources()` use the returned source Nodes?
+6. Does the current implementation send the previous chat messages to the LLM as conversational memory?
+
+Do not move to the complete source walkthrough, experiments and interview rehearsal until the learner can explain this function from start to finish.
 ---
 
 ## Source references
