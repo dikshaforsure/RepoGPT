@@ -1946,6 +1946,33 @@ These are proposed design approaches, not currently implemented features. No cac
 
 - [Streamlit `st.cache_resource` API: cache keys, underscore-prefixed arguments, clearing and TTL](https://docs.streamlit.io/develop/api-reference/caching-and-state/st.cache_resource)
 - [Streamlit caching overview](https://docs.streamlit.io/develop/concepts/architecture/caching)
+
+### 34.14 Cache invalidation patch in `fix/cache-invalidation`
+
+**Implementation committed:** `0ea292bef82a58b4b83e65646c286a2fcda2f1eb`.
+
+Before the explicit re-index path calls `load_repository(...)`, `index_repository()` now executes:
+
+~~~python
+load_repository.clear()
+build_index.clear()
+~~~
+
+The calls run after required-input validation and URL parsing, and before GitHub file loading. This forces a cache miss for the repository reader and the vector-index builder on an explicit re-index, so the next successful pass fetches the current supported repository content and builds the index from those returned Documents. The embedding-model cache is intentionally left warm.
+
+**Scope warning:** Both calls have no arguments. Per Streamlit 1.50.0 documentation, this clears all entries for each named cached function, not only the entry for the repository being re-indexed. These `st.cache_resource` functions use a global cache by default, so this may cause other sessions to reload documents/rebuild an index on their next request. Their already stored `st.session_state.index` references are not explicitly cleared by these calls.
+
+**Verification performed:**
+
+- The feature branch started from the same commit as `main` and the backup branch.
+- The GitHub commit diff contains exactly four additions and zero deletions, all in `main.py` inside `index_repository()`.
+- The backup branch's `main.py` blob remains identical to `main`'s original `main.py` blob.
+- A local Python syntax/control-flow check of the modified `index_repository()` function snippet passed: both cache clears occur before repository loading and index building, and successful indexing still updates the same session-state fields and calls rerun.
+- GitHub code search returned no `pytest`, `unittest` or matching index-function tests; the commit has no reported CI statuses or workflow runs.
+
+**Not yet verified:** The full deployed Streamlit application has not been run against a live GitHub repository after this change. The repository has no discovered automated test covering cache invalidation. Treat the patch as implemented and locally control-flow checked, but still requiring a deployed/manual re-index test before merging into `main`.
+
+**Manual validation after deployment or local checkout:** index a repository, change a supported file on the same GitHub branch, click Index repository again, then ask a question whose answer depends on the changed code. Confirm that the answer reflects the new content and that unchanged features still work. Do not merge this branch into `main` until that check succeeds.
 ---
 
 ## Source references
