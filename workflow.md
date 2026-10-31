@@ -36,6 +36,8 @@
 - [28. Lesson 7: vector index and retrieval](#28-lesson-7-vector-index-and-retrieval)
 - [29. Lesson 7 checkpoint result](#29-lesson-7-checkpoint-result)
 - [30. Lesson 8: Groq, prompts, synthesis and streaming](#30-lesson-8-groq-prompts-synthesis-and-streaming)
+- [31. Lesson 8 checkpoint result](#31-lesson-8-checkpoint-result)
+- [32. Lesson 9: complete end-to-end walkthrough](#32-lesson-9-complete-end-to-end-walkthrough)
 
 ## 1. Project in one minute
 
@@ -416,7 +418,7 @@ Update this table as each teaching session is completed. A topic should be marke
 | Product purpose and major component roles | Passed with corrections | Learner correctly explained GitHub, embeddings, LLM, Streamlit, and indexing vs answering; clarified in-memory index versus persistent vector database |
 | Application startup and function call graph | Passed (conceptual checkpoint) | Learner explained function definition vs call, identified `parse_github_url()` as a custom function, and corrected the entry-point execution order; next learn Streamlit reruns and session state |
 | Indexing workflow | Passed (conceptual checkpoint) | Learner explained the extension inclusion filter, `loader.load_data(branch=branch)`, documents returned for `build_index()`, and why `.pdf` is omitted by the current configured list; clarify that an inclusion filter is not a guarantee every listed format parses successfully |
-| Question-answering workflow | In progress — conceptual path taught | Study exact `QA_PROMPT`, query-engine orchestration, Groq generation, streamed output, source-node metadata and UI rendering from `main.py` |
+| Question-answering workflow | Passed with refinements (conceptual checkpoint) | Learner explained prompt placeholders, Groq vs. embedding model, query orchestration, streaming, answer/source return values and lack of explicit chat-history memory; clarified `st.write_stream()` displays/accumulates model output and source rendering extracts unique paths only |
 | Session state and caching | Passed (conceptual checkpoint) | Learner correctly explained that state survives reruns, `setdefault` preserves an existing index, and Clear chat removes messages while leaving the index available; the app does not explicitly pass prior chat history to the query engine |
 | Documents and chunks | Passed (conceptual checkpoint) | Learner explained that a Document represents loaded source text and metadata, chunks make retrieval more focused, `VectorStoreIndex.from_documents()` is the exact high-level call, and exact chunk settings are not configured in `main.py` |
 | Embeddings and semantic similarity | Passed with two corrections (conceptual checkpoint) | Learner explained text-to-vector conversion, semantic similarity, and use at indexing/query time; clarified that `get_embedding_model()` creates the Hugging Face object and the LLM receives retrieved text rather than raw embedding vectors |
@@ -1655,6 +1657,117 @@ sequenceDiagram
 6. Does the current implementation send the previous chat messages to the LLM as conversational memory?
 
 Do not move to the complete source walkthrough, experiments and interview rehearsal until the learner can explain this function from start to finish.
+## 31. Lesson 8 checkpoint result
+
+**Status: Passed with refinements at the conceptual level (31 October 2026).**
+
+1. **Prompt and placeholders — Correct.** The learner described a prompt as instructions governing answer generation. `{context_str}` is the retrieved repository context, and `{query_str}` is the user's question.
+2. **Groq versus embedding model — Correct.** `Settings.llm = Groq(...)` configures the Groq-hosted language model with a model name, API key and temperature. `Settings.embed_model` configures the Hugging Face embedding model. They perform separate jobs: generation versus numerical text representation.
+3. **`query_engine.query(question)` — Correct with precision.** It orchestrates the query process, including query embedding, retrieving the top-k Nodes and answer synthesis using the question and retrieved text context. It is not just a raw vector lookup.
+4. **Streaming — Correct with precision.** `streaming=True` enables streamed response generation. `st.write_stream(response.response_gen)` consumes and displays the generated output progressively, while returning the accumulated displayed text; it does not itself generate the sentences.
+5. **Return values and sources — Partially correct.** `answer()` returns the generated answer text and `response.source_nodes`. `render_sources()` loops over those Nodes, extracts `file_path` or fallback `file_name` from metadata, removes duplicate paths, and displays the unique paths. It does not display all metadata.
+6. **Conversation history — Correct.** The current code passes only the latest `question` to `answer()` and `query_engine.query(question)`. It does not explicitly pass prior chat messages as conversational memory.
+
+The learner can now describe the main RAG question-answering path from user input through retrieval, Groq generation, streaming and source display. Move to a whole-application walkthrough, then verify behavior experimentally.
+
+---
+
+## 32. Lesson 9: complete end-to-end walkthrough
+
+**Goal:** Connect the indexing workflow and question-answering workflow into one coherent explanation of the entire application, without treating library calls as mysterious black boxes.
+
+### 32.1 The application has two major user journeys
+
+RepoGPT has two distinct phases:
+
+1. **Prepare the repository:** accept URL and credentials, parse the URL, fetch supported files, create Documents, transform them into Nodes/chunks, embed them and build an in-memory index. Save the index and repository metadata in Streamlit session state.
+2. **Answer a question:** accept a question, configure models, create a query engine, embed the question, retrieve top-k Nodes, synthesize a response with the Groq LLM, stream the answer, display source paths and save the chat message.
+
+Indexing is the preparation phase. Asking questions reuses the prepared index; it does not normally rebuild it for every question.
+
+### 32.2 End-to-end indexing flow
+
+~~~mermaid
+sequenceDiagram
+    actor User
+    participant UI as Streamlit sidebar
+    participant App as index_repository
+    participant Parser as parse_github_url
+    participant Reader as GitHub reader
+    participant Llama as LlamaIndex
+    participant State as Session state
+    User->>UI: Enter URL and credentials; click Index repository
+    UI->>App: index_repository(repo_url)
+    App->>Parser: Parse URL
+    Parser-->>App: owner, repo, branch
+    App->>Reader: load_repository(token, owner, repo, branch)
+    Reader-->>App: Documents and metadata
+    App->>Llama: build_index(Documents, Groq key, cache key)
+    Llama-->>App: In-memory VectorStoreIndex
+    App->>State: Save index, repository label, count, duration and empty messages
+    App->>UI: st.rerun()
+    UI-->>User: Show indexed chat interface
+~~~
+
+### 32.3 End-to-end question-answering flow
+
+~~~mermaid
+sequenceDiagram
+    actor User
+    participant UI as Streamlit chat
+    participant App as answer(question)
+    participant QE as LlamaIndex query engine
+    participant BGE as BGE embedding model
+    participant Groq as Groq LLM
+    User->>UI: Submit a question
+    UI->>App: answer(latest question)
+    App->>QE: Create query engine with top-k and streaming
+    App->>QE: Attach QA_PROMPT and query(question)
+    QE->>BGE: Embed query
+    BGE-->>QE: Query vector
+    QE->>QE: Retrieve relevant Nodes
+    QE->>Groq: Question plus retrieved text and prompt
+    Groq-->>QE: Stream generated output
+    QE-->>App: Response generator and source_nodes
+    App-->>UI: Stream answer; return answer text and sources
+    UI->>UI: Render unique source paths and save assistant message
+~~~
+
+### 32.4 Function call map
+
+| Function | Called by / triggered from | Main responsibility |
+|---|---|---|
+| `main()` | Entry-point guard | Initializes state, renders UI and handles chat submissions |
+| `render_sidebar()` | `main()` | Renders credentials, repository URL, indexing button, top-k slider and Clear chat |
+| `index_repository()` | Index button in `render_sidebar()` | Validates inputs and orchestrates parsing, loading, indexing and session-state updates |
+| `parse_github_url()` | `index_repository()` | Extracts owner, repository and branch |
+| `load_repository()` | `index_repository()` | Configures GitHub reader and loads supported files as Documents |
+| `build_index()` | `index_repository()` | Configures models and creates `VectorStoreIndex` from Documents |
+| `configure_models()` | `build_index()` and `answer()` | Configures the Groq LLM and Hugging Face embedding model |
+| `get_embedding_model()` | `configure_models()` | Creates/reuses the local embedding model resource |
+| `answer()` | Chat-input branch in `main()` | Runs query engine, retrieval, answer synthesis and streaming |
+| `render_sources()` | `main()` after answering and while replaying stored assistant messages | Displays unique source file paths from Node metadata |
+| `get_secret()` | Indexing and answering helpers | Chooses session-entered or environment-based credentials |
+
+### 32.5 Important implementation facts to be able to defend
+
+- The index is held in runtime/session memory; the project does not configure a persistent external vector database.
+- `load_repository()` fetches Documents; `build_index()` creates the searchable vector index.
+- `main.py` does not explicitly set chunk size or overlap. Do not invent values.
+- The app uses BGE for embeddings and a Groq-hosted LLM for answer generation.
+- Top-k is adjustable in the sidebar, with a default of 5 and a slider range of 2–15.
+- `answer()` passes only the latest question to the query engine; previous UI messages are not explicitly supplied as conversational memory.
+- Source display shows unique file paths derived from metadata, not guaranteed exact line-number citations.
+- Streamlit reruns the script after interactions; session state preserves values during a session rerun, but is not durable persistent storage.
+
+### 32.6 Checkpoint — explain the project without looking
+
+1. Explain the indexing phase from the repository URL to the saved in-memory index.
+2. Explain the question-answering phase from the user's question to the displayed answer and source paths.
+3. Which work is implemented directly in `main.py`, and which work is delegated to GitHub reader, LlamaIndex, Hugging Face and Groq integrations?
+4. Name three real limitations or trade-offs in this implementation.
+
+After the learner can walk through both phases, continue to hands-on app experiments and a code-specific review of cache behavior, errors, security and interview questions.
 ---
 
 ## Source references
