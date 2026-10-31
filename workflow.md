@@ -1906,6 +1906,46 @@ A robust design would use an explicit repository content/version identifier (for
 6. Is the current `st.cache_resource` cache automatically private to each user session?
 
 Do not mark caching complete until these cache-key implications are understood. The potential stale-index behavior is source-based reasoning and still needs a controlled reproduction test.
+
+### 34.10 What happens if GitHub code changes after indexing?
+
+This is an important behavior in the current implementation. The `main.py` source was checked on 31 October 2026.
+
+**Case A — The user changes code on GitHub but does not click Index repository again.**
+
+The existing `st.session_state.index` still represents the previously indexed snapshot. `answer(question)` creates a query engine from that existing index and does not fetch GitHub files during question answering. Therefore, it cannot reliably answer questions about the new changes. It may still answer correctly about code that did not change, but it does not know about the new version.
+
+**Case B — The user clicks Index repository again for the same owner/repository/branch, with the same GitHub token and Groq key, while the caches remain populated.**
+
+The current implementation still has a stale-data risk at two stages:
+
+1. `load_repository()` is cached using its non-underscore arguments: GitHub token, owner, repository and branch. The remote repository's latest commit/content is not one of its inputs. With the same values and a still-valid cache entry, Streamlit can return the earlier Documents rather than fetching the latest files.
+2. `build_index(_docs, groq_api_key, cache_key)` excludes `_docs` from its cache key because the parameter begins with an underscore. The caller's `cache_key` is `owner/repo@branch`, so if the Groq key and repository/branch key are also unchanged, Streamlit can return the earlier VectorStoreIndex even if different Documents were supplied.
+
+The decorators do not specify a TTL, and the current app code does not call `load_repository.clear()`, `build_index.clear()` or `st.cache_resource.clear()` before re-indexing. Streamlit documents that an underscore-prefixed parameter is excluded from hashing, a cache hit skips execution of the function, and cached functions can be cleared with their `.clear()` method or globally with `st.cache_resource.clear()`.
+
+**Conclusion:** In this exact source version, clicking Index repository again is not sufficient to guarantee the latest GitHub contents are indexed. If caches are cleared, the app process/cache is restarted, or cache keys are designed to include a real content version, the app can fetch new Documents and build a fresh index. The GitHub fetch must also succeed and the changed files must be included/supported.
+
+### 34.11 Simple scenario table
+
+| User action | What RepoGPT uses in the current implementation | Will it know about the latest change? |
+|---|---|---|
+| Edit GitHub files; ask a question without re-indexing | Existing `st.session_state.index` | No, not reliably; it searches the old indexed snapshot |
+| Edit GitHub files; click re-index with same repo/branch and same credentials while caches are warm | Potentially cached old Documents and cached old index | Not guaranteed; both cache layers can return stale results |
+| Edit GitHub files; invalidate both relevant caches and index again | Freshly fetched Documents and a newly built index, assuming GitHub fetch succeeds | Yes, for the latest supported content fetched at that time |
+
+### 34.12 Practical design options
+
+- **Immediate/manual fix:** clear the cached `load_repository` and `build_index` entries before an explicit re-index operation. The embedding-model cache can remain warm. Be careful: these `st.cache_resource` caches are global by default, so clearing them can affect other users' cache entries too.
+- **More robust fix:** obtain the branch's latest commit SHA (or a reliable content hash) and include it in the ingestion and index cache keys. A new commit then produces a new key. Also ensure the GitHub document cache is keyed by that content version.
+- **Alternative:** remove caching from mutable repository content/index construction if reliable content-version invalidation is not implemented. Retain model caching for the expensive, reusable embedding model.
+
+These are proposed design approaches, not currently implemented features. No cache-clearing or stale-index reproduction test has yet been run against the deployed application.
+
+### 34.13 References
+
+- [Streamlit `st.cache_resource` API: cache keys, underscore-prefixed arguments, clearing and TTL](https://docs.streamlit.io/develop/api-reference/caching-and-state/st.cache_resource)
+- [Streamlit caching overview](https://docs.streamlit.io/develop/concepts/architecture/caching)
 ---
 
 ## Source references
