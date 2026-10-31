@@ -39,6 +39,7 @@
 - [31. Lesson 8 checkpoint result](#31-lesson-8-checkpoint-result)
 - [32. Lesson 9: complete end-to-end walkthrough](#32-lesson-9-complete-end-to-end-walkthrough)
 - [33. Lesson 10: hands-on retrieval experiment](#33-lesson-10-hands-on-retrieval-experiment)
+- [34. Lesson 11: Streamlit caching in RepoGPT](#34-lesson-11-streamlit-caching-in-repogpt)
 
 ## 1. Project in one minute
 
@@ -427,6 +428,7 @@ Update this table as each teaching session is completed. A topic should be marke
 | LlamaIndex documents, nodes, index and query engine | Pending deep dive | Inspect nodes/metadata and change retrieval settings |
 | Groq generation, tokens and streaming | Pending hands-on lesson | Compare a direct API call with the LlamaIndex path |
 | URL parsing and GitHub ingestion tests | Pending hands-on lesson | Add tests for standard, branch-specific and invalid URLs |
+| Controlled top-k retrieval experiment | Performed (learner-reported observations) | Compared top-k 2, 5 and 10 using the same authentication question; top-k 2 was most focused, top-k 5 added useful route context plus noise, and top-k 10 added no clear improvement; no timing data provided |
 | Security, reliability and deployment trade-offs | Initial checklist | Validate actual deployment configuration and test improvements |
 | End-to-end reimplementation | Pending | Build a small local-file RAG version without copying the full app |
 
@@ -1814,7 +1816,96 @@ Report: the repository you tested, the exact question, top-k values tested, sour
 
 ### Status
 
-**Not yet performed.** Await the learner's observations before recording conclusions. The end-to-end teach-back checkpoint in Section 32 remains pending and should be completed during consolidation.
+**Experiment performed by the learner; observations reported on 31 October 2026.** The repository URL was not included in the report, so this records the learner-provided observations without independently checking the indexed repository's source files.
+
+Question used at all three settings: `where is authentication handled?`
+
+| Top-k | Learner-reported answer and sources | Observation |
+|---:|---|---|
+| 2 | Identified `backend/services/auth/controllers/auth.controller.js` and `backend/services/auth/index.js`; explained Firebase ID-token verification in `login` | Most focused answer; located the controller and explained the authentication step |
+| 5 | Added `backend/services/auth/routes/auth.route.js` and route/server wiring; also surfaced `backend/services/ai/controllers/ai.controller.js` and `backend/services/auth/package-lock.json` | Added useful route context, but included sources that appear unrelated to the specific authentication flow |
+| 10 | Substantially the same answer and five unique source paths as top-k 5 | No clear improvement over top-k 5; extra sources remained |
+
+**Interpretation:** For this question, top-k 2 gave the most focused explanation. Top-k 5 added a useful route-level detail and may be the best completeness/focus trade-off if route wiring matters. Top-k 10 did not visibly add useful information beyond top-k 5. This is a conclusion for this one question and repository, not a universal best top-k setting.
+
+**Measurement caveat:** `render_sources()` deduplicates file paths before displaying them. Top-k counts retrieved Nodes/chunks, while the UI shows unique source files. Therefore the number of displayed files cannot be used to infer the exact number of retrieved Nodes. No response-time measurements were supplied.
+
+The end-to-end teach-back checkpoint in Section 32 remains pending and should be completed during consolidation.
+## 34. Lesson 11: Streamlit caching in RepoGPT
+
+**Goal:** Understand why RepoGPT caches expensive operations, how Streamlit chooses a cached result, and a concrete cache-key risk in the current `build_index()` implementation.
+
+### 34.1 Session state and caching solve different problems
+
+- `st.session_state` stores values associated with the current user's session, such as the active index reference, current messages and selected top-k.
+- `@st.cache_resource` reuses a returned resource when the decorated function's code and cache-key inputs match. Streamlit's default resource-cache scope is global, so cached resources can be shared across users and sessions. Global cached resources must be safe for concurrent use.
+
+A useful analogy: session state is a user's working notebook; a resource cache is a shared shelf of prepared tools/results that multiple app sessions may reuse.
+
+### 34.2 Why cache at all?
+
+Some operations are expensive: downloading a Hugging Face model, reading files from GitHub, and generating embeddings/building an index. Without caching, reruns or repeated calls with the same cache key could repeat this work unnecessarily. A cache hit returns the earlier cached result instead of executing the decorated function body again.
+
+### 34.3 The three cached functions in this project
+
+| Function | Cached result | Inputs considered in this source's cache key |
+|---|---|---|
+| `get_embedding_model()` | Reuses the loaded Hugging Face embedding-model resource | No function arguments; function code is also considered |
+| `load_repository(github_token, owner, repo, branch)` | Reuses loaded GitHub Documents | The token, owner, repository, branch and function code |
+| `build_index(_docs, groq_api_key, cache_key)` | Reuses the in-memory vector-index resource | `groq_api_key`, `cache_key` and function code; `_docs` is excluded because its name begins with `_` |
+
+### 34.4 Why does `_docs` start with an underscore?
+
+Streamlit's caching rule excludes a parameter whose name begins with an underscore from the cache-key calculation. The current function is:
+
+~~~python
+@st.cache_resource(show_spinner=False)
+def build_index(_docs, groq_api_key: str, cache_key: str) -> VectorStoreIndex:
+    configure_models(groq_api_key)
+    return VectorStoreIndex.from_documents(_docs, show_progress=False)
+~~~
+
+The function still uses `_docs` when there is a cache miss. The underscore does not mean Python ignores the argument; it means Streamlit does not hash that argument as part of the cache key.
+
+### 34.5 A concrete stale-index risk
+
+The caller passes `cache_key=f'{owner}/{repo}@{branch}'`. That identifies the repository and branch, but not a specific commit or content version. Imagine these events:
+
+1. RepoGPT indexes `team/project@main` when the repository is at version A.
+2. The repository's `main` branch changes and now contains version B.
+3. The user indexes the same owner/repository/branch again with the same Groq key.
+4. `load_repository()` may fetch new Documents, but `build_index()` excludes `_docs` from its key. Its other inputs (`groq_api_key` and `cache_key`) are unchanged.
+5. A matching cached index may therefore be returned instead of rebuilding from the new Documents.
+
+This is a cache invalidation risk inferred from the source and Streamlit's documented key rules. It has not yet been reproduced in the deployed app. Do not describe it as a confirmed production incident.
+
+A second inefficiency: `groq_api_key` is part of the `build_index()` cache key even though the returned vector representation is built from Documents and the embedding model, not from the Groq secret. Rotating the Groq key can therefore cause a cache miss and rebuild the index unnecessarily.
+
+### 34.6 Cache lifetime and sharing
+
+The current decorators do not specify a TTL or session scope. Streamlit's default `st.cache_resource` scope is global and its default TTL is no expiration. Cache entries remain available until invalidated/cleared or the application process/cache is restarted. This differs from the index reference stored in each user's `st.session_state`.
+
+Because a global resource cache can share returned objects across sessions, developers must consider thread safety and data isolation when caching user- or repository-specific resources. Do not assume `st.cache_resource` is automatically private to the current user.
+
+### 34.7 What could improve the design?
+
+A robust design would use an explicit repository content/version identifier (for example a commit SHA or content hash) in the index cache key, rather than only owner/repository/branch. It should also avoid making index reuse depend on a Groq API key when that key is not an input to the vector-index content. Any change should be implemented and tested before documenting it as a feature.
+
+### 34.8 References
+
+- [Streamlit `st.cache_resource` API](https://docs.streamlit.io/develop/api-reference/caching-and-state/st.cache_resource)
+- [Streamlit caching overview](https://docs.streamlit.io/develop/concepts/architecture/caching)
+
+### 34.9 Checkpoint
+
+1. What is the difference between `st.session_state` and `@st.cache_resource`?
+2. Which three functions in RepoGPT are decorated with `@st.cache_resource`?
+3. Why does Streamlit exclude `_docs` from the cache key in `build_index()`?
+4. If the content of the `main` branch changes but owner/repo/branch and Groq key stay the same, what stale-index risk exists?
+5. Why is including the Groq API key in the `build_index()` cache key potentially unnecessary?
+6. Is the current `st.cache_resource` cache automatically private to each user session?
+
+Do not mark caching complete until these cache-key implications are understood. The potential stale-index behavior is source-based reasoning and still needs a controlled reproduction test.
 ---
 
 ## Source references
