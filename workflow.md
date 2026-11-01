@@ -2075,6 +2075,10 @@ It is not enough to read commit SHA A and then fetch the moving branch name if t
 
 Version-aware keys avoid clearing every user's cache on every re-index, but older commit-version entries can remain cached. A production design should also choose an appropriate TTL, maximum number of entries, or other eviction policy so old repository versions do not accumulate indefinitely.
 
+**Important distinction — cache clearing versus a cache miss:** A new commit SHA does not automatically delete the old cache entries. It creates a different cache key. When the new key is requested, Streamlit has no matching entry and executes the function, creating a new cached result for that version. The old version's entries may remain until TTL expiration, explicit eviction, or a cache clear. By contrast, the current merged implementation explicitly calls `.clear()` and removes all entries for the two functions before each explicit re-index.
+
+**Learner checkpoint clarification (1 November 2026):** The learner correctly identified that a new index should be built after repository content changes, but initially described the version-aware approach as removing both caches. Correction: with version-aware keys, the old entries need not be removed; the new commit SHA creates new identities, causing cache misses for the new Documents and index. The old entries can remain until the cache's eviction policy removes them.
+
 **Implementation status:** This is a design lesson only. The merged `main` branch still uses the simple global `.clear()` calls from Section 34.14. No commit-SHA-based cache design has been implemented or tested.
 
 **Checkpoint:**
