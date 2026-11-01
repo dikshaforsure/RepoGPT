@@ -2160,6 +2160,10 @@ A robust system may combine these: version-aware keys for correctness, plus TTL/
 
 Do not add arbitrary TTL or `max_entries` values without measuring repository sizes, usage patterns, indexing cost and memory consumption. The correct values depend on deployment behavior.
 
+**Checkpoint clarification (learner response, 1 November 2026):** The learner correctly recognized that the `load_repository()` cache entry expires after its TTL, but initially assumed this alone forces the vector index to be rebuilt. It does not: `build_index()` has its own cache. Because `_docs` is excluded from that function's cache key, fresh Documents can still be paired with a cache hit for an old index when the other key inputs are unchanged.
+
+**Important note about the actual merged application:** The current `index_repository()` also calls `build_index.clear()` before loading Documents. Therefore, an explicit click on **Index repository** in the current merged application clears the index cache regardless of the hypothetical TTL-only scenario. The lesson question deliberately isolates what would happen if only the Documents cache were given a TTL and the index cache were left to rely on its existing cache key.
+
 **Checkpoint:**
 1. If `ttl=3600`, does Streamlit proactively rebuild an unused entry exactly one hour later, without anyone calling the function?
 2. If `max_entries=10`, does that guarantee the cache uses less than a fixed number of megabytes?
