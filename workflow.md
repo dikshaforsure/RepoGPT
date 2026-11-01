@@ -2164,10 +2164,97 @@ Do not add arbitrary TTL or `max_entries` values without measuring repository si
 
 **Important note about the actual merged application:** The current `index_repository()` also calls `build_index.clear()` before loading Documents. Therefore, an explicit click on **Index repository** in the current merged application clears the index cache regardless of the hypothetical TTL-only scenario. The lesson question deliberately isolates what would happen if only the Documents cache were given a TTL and the index cache were left to rely on its existing cache key.
 
+**Checkpoint clarification (learner response, 1 November 2026):** When asked which cache must miss after fresh Documents have already been fetched but an old vector index remains cached, the learner answered "both." The precise answer for that scenario is the `build_index()` cache: its entry must miss or be cleared to force a new vector index. Both cache stages need correct freshness handling for the complete end-to-end repository refresh, but the Documents stage is already fresh in the stated scenario.
+
 **Checkpoint:**
 1. If `ttl=3600`, does Streamlit proactively rebuild an unused entry exactly one hour later, without anyone calling the function?
 2. If `max_entries=10`, does that guarantee the cache uses less than a fixed number of megabytes?
 3. If only `load_repository()` gets a TTL but `build_index()` keeps its old matching cache entry, is that alone enough to guarantee a new vector index?
+
+
+## 35. Lesson 12: error handling and failure paths
+
+**Goal:** Understand how RepoGPT responds when indexing or question answering fails. This section follows the merged main.py and distinguishes validation messages, normal early returns, and exceptions.
+
+### 35.1 Three ways a workflow can stop
+
+1. **Validation failure:** The app detects a missing or invalid input and displays a message. It returns without starting the expensive operation.
+2. **Expected empty result:** The code successfully calls the reader, but it returns no supported Documents. RepoGPT displays a specific message and stops before building an index.
+3. **Unexpected exception:** A library, network call, API request or other operation raises an exception. RepoGPT catches it and displays an error message.
+
+An early return is not the same as an exception. It is a normal way for a function to stop when it has nothing useful to do.
+
+### 35.2 Indexing failure path
+
+The current index_repository(repo_url) flow is:
+
+~~~mermaid
+flowchart TD
+    A[Click Index repository] --> B[Read Groq key and GitHub token]
+    B --> C{Inputs present?}
+    C -- No --> D[Show relevant validation message and return]
+    C -- Yes --> E[Parse GitHub URL]
+    E --> F{URL valid?}
+    F -- No --> G[Show ValueError message and return]
+    F -- Yes --> H[Clear repository and index caches]
+    H --> I[Load repository Documents]
+    I --> J{Documents found?}
+    J -- No --> K[Show no supported files message and return]
+    J -- Yes --> L[Build vector index]
+    L --> M{Any exception?}
+    M -- Yes --> N[Show indexing failure and exception details; return]
+    M -- No --> O[Update this session's index and metadata]
+    O --> P[Clear chat messages]
+    P --> Q[Rerun Streamlit]
+~~~
+
+Important source details:
+
+- Missing repository URL produces a warning and an early return.
+- Missing Groq key or GitHub token produces an error and an early return.
+- parse_github_url() is handled with a specific except ValueError.
+- The cache clear, GitHub read and vector-index build are inside a broader try/except Exception.
+- An empty Documents list is handled with a separate if not docs branch. It is not treated as an exception.
+- The new index is assigned to st.session_state.index only after both reading and index building succeed.
+
+### 35.3 What happens to the currently active index if re-indexing fails?
+
+The code does not set st.session_state.index = None at the start of re-indexing. It assigns the new index only after a successful build.
+
+Therefore, in the same session, if a user already has an index and a later re-index attempt fails before the success assignments, the old session index reference is left in place. The UI displays an error for that run. This is different from the shared cache: the two global cache clear calls may already have evicted shared cache entries, even though the old index reference remains in the session.
+
+This is a deliberate observable property of the present control flow; it does not mean the old index contains the latest repository data.
+
+### 35.4 Question-answering failure path
+
+The question-answering flow is shorter:
+
+1. The user submits a question.
+2. main() appends the user's message to st.session_state.messages.
+3. answer(question) configures the Groq and embedding models.
+4. It creates a query engine from the session's current index.
+5. It applies the custom prompt and calls query_engine.query(question).
+6. The answer stream is displayed and the function returns the answer text and source nodes.
+7. The caller stores the assistant answer and sources.
+
+If an exception occurs in this block, main() catches it and displays: "The question could not be answered..." with the exception details. The assistant message and source metadata are appended only after answer() returns successfully.
+
+### 35.5 What the current error handling does not guarantee
+
+- It does not automatically retry GitHub or Groq requests.
+- It does not distinguish every possible network, authentication, rate-limit, model, parsing or memory error into a dedicated recovery action.
+- It does not persist a detailed structured error log in the application code shown here.
+- The user-facing error includes exception details. Those details are helpful while debugging, but production applications should consider whether raw internal error messages reveal paths, service details or other implementation information.
+- The code does not automatically discard a previously working session index when a re-index attempt fails.
+
+These are observations and possible future improvements, not evidence that a specific production failure has occurred.
+
+### 35.6 Checkpoint
+
+1. Is an empty Documents list an exception in this code, or a separate condition handled with if not docs?
+2. If a user already has an index and re-indexing fails before the success assignments, does this function set the session index to None?
+3. Which exception type is handled specifically when parsing the repository URL?
+4. If question answering raises an exception, is an assistant answer appended to chat history?
 
 ---
 
