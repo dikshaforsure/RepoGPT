@@ -43,6 +43,7 @@
 - [35. Lesson 12: error handling and failure paths](#35-lesson-12-error-handling-and-failure-paths)
 - [36. Lesson 13: security and credential handling](#36-lesson-13-security-and-credential-handling)
 - [37. Lesson 14: testing and production readiness](#37-lesson-14-testing-and-production-readiness)
+- [38. Lesson 15: final interview preparation](#38-lesson-15-final-interview-preparation)
 
 ## 1. Project in one minute
 
@@ -2532,6 +2533,183 @@ These are improvement areas, not claims that the project currently implements th
 3. Does the successful cache-marker test prove that RepoGPT has been load-tested for many simultaneous users?
 4. Why should retrieval evaluation check source relevance and factual support rather than only checking that the LLM returned a string?
 5. What is one limitation of importing parse_github_url() directly from the current main.py in a lightweight unit test?
+
+
+### 37.7 Lesson 14 checkpoint status
+
+The learner asked to proceed without submitting answers to the five-question Lesson 14 checkpoint. The material was taught, but the checkpoint was not assessed. Do not record a score or mark the checkpoint as passed.
+
+## 38. Lesson 15: final interview preparation
+
+**Goal:** Build an accurate, source-grounded explanation of RepoGPT and prepare for likely software engineering interview follow-ups. This section describes the current merged main branch, not unimplemented proposals.
+
+### 38.1 A 60–90 second project explanation
+
+"RepoGPT is a Streamlit-based application that lets a developer ask natural-language questions about a GitHub repository. It uses a retrieval-augmented generation pipeline rather than sending an entire codebase to a language model for every question.
+
+When a user supplies a repository URL, the app parses the owner, repository and branch, then uses the LlamaIndex GitHub reader to fetch supported files as Documents. LlamaIndex builds an in-memory vector index using the local Hugging Face embedding model BAAI/bge-small-en-v1.5. When the user asks a question, the query engine retrieves the most relevant chunks, combines them with the question through a custom prompt, and uses a Groq-hosted LLM to generate a streamed answer. The app also displays the source file paths associated with the retrieved nodes.
+
+The app uses Streamlit session state for the active index and chat, and resource caching for expensive operations. During testing, I identified a stale-cache risk caused by the repository and index cache keys not representing repository content versions. I implemented cache clearing before explicit re-indexing, tested it locally by changing a README marker from ALPHA_417 to BETA_829, and verified that the old value remains before re-indexing and the new value appears afterward."
+
+This is a suggested explanation. Use it only if it accurately represents the work you personally did and can explain.
+
+### 38.2 Explain the architecture as two pipelines
+
+**Indexing pipeline:**
+
+~~~text
+Repository URL
+    -> parse_github_url()
+    -> owner / repo / branch
+    -> load_repository()
+    -> GithubRepositoryReader
+    -> supported Documents + metadata
+    -> build_index()
+    -> configure_models()
+    -> local embedding model
+    -> VectorStoreIndex.from_documents()
+    -> in-memory index stored in st.session_state
+~~~
+
+**Question-answering pipeline:**
+
+~~~text
+User question
+    -> answer(question)
+    -> configure_models()
+    -> session index creates query engine
+    -> similarity_top_k retrieval
+    -> QA_PROMPT with retrieved context and question
+    -> query_engine.query()
+    -> Groq LLM response stream
+    -> st.write_stream()
+    -> source_nodes returned
+    -> render_sources() displays unique file paths
+    -> assistant message and sources stored in session state
+~~~
+
+The critical separation: indexing prepares the searchable representation. Question answering searches that representation and generates an answer; it does not fetch GitHub again for every question.
+
+### 38.3 Important technical choices and trade-offs
+
+| Design choice | Why it is used | Trade-off / limitation |
+|---|---|---|
+| RAG instead of whole-repository prompting | Retrieves relevant code chunks for each question | Retrieval can miss relevant chunks |
+| Local Hugging Face embeddings | Embedding computation runs locally after model download | Initial model download and local memory/compute cost |
+| Groq-hosted LLM | Provides answer generation through an API | Network, quota, model availability and external data-sharing dependency |
+| LlamaIndex | Provides readers, vector index and query-engine orchestration | Behavior also depends on library defaults and versions |
+| Streamlit | Rapid Python-based UI and session state | Script reruns and session lifecycle need to be understood |
+| In-memory vector index | Simple deployment without configuring a vector database | Process restart loses the index; it must be rebuilt |
+| Streamlit resource caching | Reuses expensive resources/results | Global cache behavior and cache-key correctness matter |
+| Source paths | Help users inspect supporting files | Paths are not exact line citations or proof that every claim is correct |
+| Streaming | Displays text progressively | A partially displayed response can still fail or be incomplete |
+
+### 38.4 Likely interview questions and grounded answers
+
+**Q1. Why did you use RAG instead of directly passing the repository to an LLM?**
+
+A repository can contain many files and exceed practical context limits. RAG first retrieves a smaller set of relevant chunks, then sends those chunks with the question to the LLM. This reduces irrelevant context and makes it easier to point the user toward source files. Retrieval quality still limits answer quality.
+
+**Q2. What is the difference between an embedding model and an LLM?**
+
+The embedding model converts text into numerical vectors that can be compared for semantic similarity. The LLM generates a natural-language answer. RepoGPT uses BAAI/bge-small-en-v1.5 for embeddings and a Groq-hosted model for answer generation. They perform different jobs.
+
+**Q3. What does top-k mean in your application?**
+
+It controls how many relevant Nodes/chunks the retriever requests for a question. The slider in the current UI ranges from 2 to 15 and starts at 5. It is not the number of files. Multiple chunks can belong to the same file, and the number of unique source paths displayed can be lower than top-k.
+
+**Q4. Does RepoGPT remember previous questions when generating the next answer?**
+
+The UI stores and displays previous messages in st.session_state.messages, but answer(question) passes only the current question to the query engine. The prior message history is not explicitly supplied as conversational memory in the current code. Therefore, displaying chat history does not mean the LLM has been given that history.
+
+**Q5. What is the difference between Documents and Nodes/chunks?**
+
+A Document is the reader's representation of an input file, including text and metadata. During indexing, LlamaIndex processes the document into smaller Nodes/chunks for embedding and retrieval. The current source does not explicitly configure chunk size or overlap, so do not claim custom values.
+
+**Q6. What is stored in the vector index?**
+
+The index organizes vector representations associated with text Nodes and metadata so relevant chunks can be retrieved. It is built with VectorStoreIndex.from_documents(...) and held in memory in this application. There is no persistent external vector database configured in the current source.
+
+**Q7. Why did the stale-cache issue happen?**
+
+load_repository() was cached by token, owner, repository and branch, none of which identifies the latest remote commit. build_index() used _docs, but Streamlit excludes underscore-prefixed parameters from the cache key. Its other key input cache_key identified only owner/repo/branch, and the Groq key also participated. So a repeated indexing call could reuse old Documents or an old index when the cache entries were warm.
+
+**Q8. How did you fix and test it?**
+
+Before a user explicitly re-indexes, index_repository() now calls load_repository.clear() and build_index.clear(). I tested this on a local checkout with a separate test branch: after indexing ALPHA_417, I changed the README marker to BETA_829. Without re-indexing, the old value remained; after clicking Index repository, the new value appeared. The test validates that scenario locally. It does not prove multi-user load performance or remove the global-cache trade-off.
+
+**Q9. What is the downside of calling clear() without arguments?**
+
+It clears all cached entries for that decorated function, not only the entry for the current repository. Since st.cache_resource is globally scoped by default, another session's cache entries can be evicted. An already-held index reference in another session's st.session_state is not automatically erased. The approach can cause additional reads and rebuilds.
+
+**Q10. How would you improve cache invalidation further?**
+
+Resolve the branch's latest commit SHA, use it as part of both the Documents and index cache identities, and fetch the exact immutable snapshot corresponding to that SHA. A new commit then creates new cache identities without clearing unrelated entries. Add an eviction policy such as TTL or a maximum entry count to control old versions. This is a proposed design, not implemented in the current app.
+
+**Q11. What happens if a user clicks Clear chat?**
+
+The handler sets st.session_state.messages to an empty list and reruns Streamlit. It does not clear the active vector index or the global resource caches.
+
+**Q12. What happens if re-indexing fails after a previous successful index?**
+
+The current function assigns st.session_state.index only after loading and building the new index succeed. It does not set the existing session index to None at the beginning. So a failure before the success assignments leaves the old active index reference in that session, even though shared cache entries may already have been cleared.
+
+**Q13. Does RepoGPT send all repository code to Groq?**
+
+The GitHub reader fetches the supported files, and the embedding model processes text locally. During a question, the retrieved repository context and the user's question are included in the answer-generation call to Groq. Do not describe all repository files as being sent to Groq for every question.
+
+**Q14. What are the security limitations?**
+
+Credentials are entered into password-type fields or loaded from environment variables. .gitignore excludes .env and .streamlit/secrets.toml. However, masking a field is not encryption, .gitignore does not protect an already committed key, and retrieved source context is sent to the external Groq service. The prompt discourages following instructions embedded in repository content, but prompt wording alone cannot guarantee prompt-injection resistance.
+
+**Q15. What is the biggest limitation of the current application?**
+
+Choose a limitation you can explain clearly. Strong examples are the in-memory index that must be rebuilt after a process restart, lack of an automated test suite in the current repository, global cache clearing, source paths without exact line citations, and lack of explicit conversational memory. Do not claim one is the single biggest without explaining the intended usage context.
+
+### 38.5 Interview claims: what to say and what not to say
+
+| Accurate claim | Avoid claiming |
+|---|---|
+| "I implemented and manually tested cache invalidation for explicit re-indexing." | "I implemented commit-SHA-based cache versioning." |
+| "I tested the marker update locally in one Streamlit session." | "I load-tested multi-user concurrency." |
+| "The app displays source file paths." | "The app provides precise line-number citations." |
+| "The index is in memory." | "The index persists in a vector database." |
+| "The prompt mitigates prompt-injection risk." | "The app is immune to prompt injection." |
+| "I reviewed error handling in source." | "All failure cases have automated tests." |
+| "The UI keeps chat messages in session state." | "The LLM has full conversational memory." |
+
+### 38.6 Suggested project-description version for a resume/interview
+
+**RepoGPT — GitHub Repository Q&A using RAG**
+
+- Built a Streamlit application that ingests supported GitHub repository files and answers natural-language codebase questions using LlamaIndex retrieval and a Groq-hosted LLM.
+- Implemented semantic retrieval using local Hugging Face embeddings and an in-memory vector index, with configurable top-k retrieval and streamed answers with source-file references.
+- Diagnosed and fixed stale-cache behavior during explicit re-indexing by invalidating repository-document and vector-index caches; validated the change with a controlled repository-marker update test.
+
+Only use these bullets if you personally understand and can defend each statement. Do not add performance percentages or user counts without measurements.
+
+### 38.7 Final interview rehearsal checklist
+
+Before an interview, be able to do these without reading the source:
+
+1. Explain the product problem and why RAG is used.
+2. Draw the ingestion pipeline and question-answering pipeline.
+3. Explain Document, Node/chunk, embedding, vector index, retriever, prompt and LLM.
+4. Explain Streamlit reruns, session state and resource caching.
+5. Explain the stale-cache bug, exact patch, manual test and global-cache trade-off.
+6. Explain credential separation, local embeddings and Groq data sharing.
+7. Name at least three limitations and propose realistic improvements.
+8. Clearly separate implemented features, manual test evidence and future design proposals.
+
+### 38.8 Final study status
+
+- Lessons 1–11: taught with source walkthroughs and experiments.
+- Lesson 12: taught; learner scored 2/4 on its checkpoint, and the missed answers were corrected.
+- Lesson 13: all five security answers were explained on request; no independent checkpoint score was recorded.
+- Lesson 14: testing and production-readiness material was taught. The learner moved forward without submitting the five-question checkpoint, so it remains unassessed.
+- Lesson 15: final interview preparation completed by this guide. No live mock interview has yet been conducted.
+
+**Overall completion means the learner has received the project-specific teaching and interview guide. It does not mean every concept has been independently assessed or that the application has been production/load/security audited.**
 
 ---
 
