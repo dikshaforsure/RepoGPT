@@ -230,6 +230,10 @@ def index_repository(repo_url: str) -> None:
 
     started = time.time()
     try:
+        # Explicit re-indexing must fetch fresh repository data and rebuild its index.
+        load_repository.clear()
+        build_index.clear()
+
         with st.spinner(f"Reading {owner}/{repo}@{branch} from GitHub…"):
             docs = load_repository(github_token, owner, repo, branch)
 

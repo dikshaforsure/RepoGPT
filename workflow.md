@@ -1946,6 +1946,41 @@ These are proposed design approaches, not currently implemented features. No cac
 
 - [Streamlit `st.cache_resource` API: cache keys, underscore-prefixed arguments, clearing and TTL](https://docs.streamlit.io/develop/api-reference/caching-and-state/st.cache_resource)
 - [Streamlit caching overview](https://docs.streamlit.io/develop/concepts/architecture/caching)
+
+### 34.14 Cache invalidation patch in `fix/cache-invalidation`
+
+**Implementation committed:** `0ea292bef82a58b4b83e65646c286a2fcda2f1eb`.
+
+Before the explicit re-index path calls `load_repository(...)`, `index_repository()` now executes:
+
+~~~python
+load_repository.clear()
+build_index.clear()
+~~~
+
+The calls run after required-input validation and URL parsing, and before GitHub file loading. This forces a cache miss for the repository reader and the vector-index builder on an explicit re-index, so the next successful pass fetches the current supported repository content and builds the index from those returned Documents. The embedding-model cache is intentionally left warm.
+
+**Scope warning:** Both calls have no arguments. Per Streamlit 1.50.0 documentation, this clears all entries for each named cached function, not only the entry for the repository being re-indexed. These `st.cache_resource` functions use a global cache by default, so this may cause other sessions to reload documents/rebuild an index on their next request. Their already stored `st.session_state.index` references are not explicitly cleared by these calls.
+
+**Verification performed:**
+
+- The feature branch started from the same commit as `main` and the backup branch.
+- The GitHub commit diff contains exactly four additions and zero deletions, all in `main.py` inside `index_repository()`.
+- The backup branch's `main.py` blob remains identical to `main`'s original `main.py` blob.
+- A local Python syntax/control-flow check of the modified `index_repository()` function snippet passed: both cache clears occur before repository loading and index building, and successful indexing still updates the same session-state fields and calls rerun.
+- GitHub code search returned no `pytest`, `unittest` or matching index-function tests; the commit has no reported CI statuses or workflow runs.
+
+**Manual integration test completed locally (learner-reported, 1 November 2026):** The full Streamlit application was run from a local checkout of `fix/cache-invalidation` on port 8504 and tested against a user-owned GitHub repository and a dedicated branch named `cache-invalidation-demo`. A marker in `README.md` was used so the indexed repository version could be identified exactly.
+
+| Test | Action | Learner-reported result | Status |
+|---|---|---|---|
+| Initial indexing | Commit `CACHE_TEST_MARKER = ALPHA_417`, index the branch, and ask for the marker value | Returned `ALPHA_417` | Passed |
+| No re-index | Change the committed marker to `BETA_829` on the same branch, but do not click Index repository; ask the same question | Still returned `ALPHA_417` | Passed |
+| Re-index | Click Index repository again with the same repository URL, branch and credentials; ask the same question | Returned `BETA_829` | Passed |
+
+The learner reported no errors or unexpected results. This controlled test demonstrates the intended behavior in the local app: the active session keeps using its existing index until an explicit re-index, and the re-index path then fetches and indexes the updated repository content.
+
+**Remaining verification limits:** The result is learner-reported and was not independently observed by the maintainer. This test does not establish behavior under simultaneous multi-user load, network/API failure, or on the deployed Streamlit Community Cloud app. No automated test suite covering this behavior was discovered. The patch passed the reported local manual integration test, but production deployment and multi-session effects remain separate checks.
 ---
 
 ## Source references
