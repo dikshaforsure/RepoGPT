@@ -1981,6 +1981,37 @@ The calls run after required-input validation and URL parsing, and before GitHub
 The learner reported no errors or unexpected results. This controlled test demonstrates the intended behavior in the local app: the active session keeps using its existing index until an explicit re-index, and the re-index path then fetches and indexes the updated repository content.
 
 **Remaining verification limits:** The result is learner-reported and was not independently observed by the maintainer. This test does not establish behavior under simultaneous multi-user load, network/API failure, or on the deployed Streamlit Community Cloud app. No automated test suite covering this behavior was discovered. The patch passed the reported local manual integration test, but production deployment and multi-session effects remain separate checks.
+
+
+### 34.15 Global cache clearing and other users' sessions
+
+The cache-invalidation calls added to `index_repository()` are:
+
+~~~python
+load_repository.clear()
+build_index.clear()
+~~~
+
+Both are called without a key or arguments. Streamlit therefore clears **all cached entries for each decorated function**, not just the entry for the repository currently being indexed.
+
+It is important to distinguish the shared cache from each session's active index:
+
+- **Shared resource cache:** stores results from the decorated functions and can be reused across sessions. Clearing it removes the cached entries so later calls must execute the functions again.
+- **Session state:** each browser session keeps its own `st.session_state.index` reference. Clearing the function cache does not automatically set another session's index to `None`, nor does it directly mutate an index object already held by that session.
+
+Example with two users:
+
+1. User A indexes Repository A. Its Documents and index may now be present in the shared cache, and User A's session stores its active index reference.
+2. User B indexes Repository B. The two `.clear()` calls remove all cached entries for both functions, including entries that were associated with Repository A.
+3. User A's already-held `st.session_state.index` reference is not automatically deleted. User A can continue asking questions against that in-memory index.
+4. If User A later explicitly re-indexes, the cleared cache means the reader and index builder must run again.
+
+**Trade-off:** This is simple and ensures an explicit re-index does not reuse stale cached Documents or a stale cached index. However, it is broad: one user's re-index can evict cache entries that other sessions might otherwise reuse. Concurrent re-indexing can also cause extra GitHub reads and index builds.
+
+A more targeted design would include a repository content version (such as the branch's commit SHA) in the cache key, and invalidate or naturally miss only the entry for the changed version. The current patch does not implement that targeted strategy.
+
+**Checkpoint:** If User B re-indexes a different repository, does that automatically erase User A's current `st.session_state.index`? Explain the difference between clearing a cached function's entries and clearing an object reference already stored in session state.
+
 ---
 
 ## Source references
