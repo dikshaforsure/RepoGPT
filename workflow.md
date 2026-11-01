@@ -40,6 +40,9 @@
 - [32. Lesson 9: complete end-to-end walkthrough](#32-lesson-9-complete-end-to-end-walkthrough)
 - [33. Lesson 10: hands-on retrieval experiment](#33-lesson-10-hands-on-retrieval-experiment)
 - [34. Lesson 11: Streamlit caching in RepoGPT](#34-lesson-11-streamlit-caching-in-repogpt)
+- [35. Lesson 12: error handling and failure paths](#35-lesson-12-error-handling-and-failure-paths)
+- [36. Lesson 13: security and credential handling](#36-lesson-13-security-and-credential-handling)
+- [37. Lesson 14: testing and production readiness](#37-lesson-14-testing-and-production-readiness)
 
 ## 1. Project in one minute
 
@@ -2365,6 +2368,170 @@ Do not claim these protections exist unless they are independently implemented a
 3. Does the local embedding model send repository text to Groq, or is retrieved context sent to Groq during answer generation?
 4. Does the instruction in QA_PROMPT make prompt injection impossible?
 5. If a real API key is accidentally committed to GitHub, is adding the filename to .gitignore afterward enough to make that key safe? Explain what action is needed.
+
+
+### 36.10 Security checkpoint answers and result
+
+**Learner requested the answers directly (1 November 2026).**
+
+1. The GitHub token is passed to GithubClient; the Groq API key is passed to the Groq client through configure_models().
+2. No. type="password" masks the input visually. The application still receives the value and Streamlit exposes it through the widget's session-state key.
+3. The local embedding model processes repository text locally. For answer generation, the user's question and retrieved repository context are sent to Groq. RepoGPT does not intentionally send every repository file to Groq on every question.
+4. No. The prompt instruction is a mitigation, not a guarantee against prompt injection.
+5. No. Revoke or rotate the exposed key immediately; remove it from repository history as appropriate; inspect for misuse. Adding a filename to .gitignore does not make an already exposed key safe.
+
+**Lesson 13 status: completed by explanation.** The learner asked for the answers rather than attempting the checkpoint independently, so these are taught answers, not an assessed five-question score.
+
+## 37. Lesson 14: testing and production readiness
+
+**Goal:** Distinguish different types of tests, identify what is already verified in RepoGPT, and understand what would be needed before calling the application production-ready.
+
+### 37.1 What is the current test situation?
+
+The inspected GitHub tree for main contains the application and configuration files (main.py, requirements.txt, README, .env.example, .gitignore, Streamlit config and workflow.md). It does not currently contain a tests/ directory or test files. The current requirements.txt does not include pytest.
+
+This does not mean the application has never been tested. The learner has completed manual tests, including the controlled cache-invalidation test. It means a repeatable automated test suite was not present in the inspected repository tree.
+
+### 37.2 Four useful levels of testing
+
+**A. Unit tests — test one small piece of logic**
+
+A unit test supplies controlled inputs and checks a predictable output, without depending on GitHub or Groq.
+
+Good first target: parse_github_url() because it is mostly deterministic input-validation logic.
+
+Example cases:
+- A normal repository URL defaults to branch main.
+- A /tree/develop URL returns branch develop.
+- A nested branch URL retains feature/nested-change.
+- A .git suffix is removed from the repository name.
+- A non-GitHub host or incomplete path raises ValueError.
+
+Python's built-in unittest can run these tests without adding a third-party test runner. One source-code caveat: importing parse_github_url from main.py also executes module-level setup, imports the application dependencies and checks/downloads NLTK resources. That makes this otherwise simple unit test heavier than ideal. A future refactor could move pure URL parsing into a small module with no Streamlit or NLTK startup side effects. That refactor is a proposal, not an implemented change.
+
+**B. Integration tests — test components working together**
+
+Examples:
+- Verify the GitHub reader retrieves supported files from a dedicated test repository and branch.
+- Verify the returned Documents include source metadata.
+- Verify VectorStoreIndex.from_documents() can build an index from a small, known Document collection.
+- Verify a query can retrieve the expected source node.
+
+These tests may require network access, a GitHub token, a downloaded embedding model, memory and possibly a Groq key. Use a dedicated test repository and controlled credentials. Keep provider-dependent tests separate from quick local unit tests.
+
+**C. End-to-end tests — test the user-visible workflow**
+
+Test the app as a user would:
+1. Open the Streamlit application.
+2. Enter credentials and a test repository URL.
+3. Click Index repository.
+4. Ask a question whose answer is known from the repository.
+5. Verify the answer against source code and inspect the displayed paths.
+6. Change a file on the same branch, re-index, and confirm the new value is reflected.
+7. Test invalid inputs and recoverable failures.
+
+The learner completed one important end-to-end manual test for cache invalidation (see Section 34.14): initial marker ALPHA_417, unchanged answer before re-indexing, and updated marker BETA_829 after re-indexing. This result was learner-reported and successful in the local Streamlit app.
+
+**D. Retrieval-quality evaluation — test answer evidence, not just whether code runs**
+
+A successful HTTP/API call does not prove the answer is correct. Maintain a small set of questions with:
+- The expected relevant source files or code behavior.
+- The expected facts the answer should contain.
+- Facts that would make the answer incorrect.
+- Whether the retrieved source nodes actually support the answer.
+
+Do not require identical generated wording across runs. Evaluate factual correctness, evidence coverage, source relevance and unsupported claims. LLM output can vary.
+
+### 37.3 A first lightweight unit-test example
+
+A future test file could look like this:
+
+~~~python
+import unittest
+
+from main import parse_github_url
+
+
+class ParseGithubUrlTests(unittest.TestCase):
+    def test_default_branch_is_main(self):
+        self.assertEqual(
+            parse_github_url("https://github.com/example/project"),
+            ("example", "project", "main"),
+        )
+
+    def test_branch_specific_url(self):
+        self.assertEqual(
+            parse_github_url(
+                "https://github.com/example/project/tree/develop"
+            ),
+            ("example", "project", "develop"),
+        )
+
+    def test_nested_branch_name(self):
+        self.assertEqual(
+            parse_github_url(
+                "https://github.com/example/project/tree/feature/nested-change"
+            ),
+            ("example", "project", "feature/nested-change"),
+        )
+
+    def test_git_suffix_is_removed(self):
+        self.assertEqual(
+            parse_github_url("https://github.com/example/project.git"),
+            ("example", "project", "main"),
+        )
+
+    def test_non_github_host_is_rejected(self):
+        with self.assertRaises(ValueError):
+            parse_github_url("https://example.com/example/project")
+
+
+if __name__ == "__main__":
+    unittest.main()
+~~~
+
+This is an illustrative test file, not a file currently added to the repository. Since importing main.py performs NLTK setup, run it in the configured project environment with the required NLTK resources available. A cleaner future structure would move the parser to a side-effect-free module and import that module in tests.
+
+If the test file were saved at tests/test_url_parser.py, the command would be:
+
+~~~powershell
+python -m unittest discover -s tests -v
+~~~
+
+### 37.4 What has actually been verified so far?
+
+| Area | Evidence | Status |
+|---|---|---|
+| Core learning walkthrough | Lessons 1–11 and source inspections | Covered conceptually |
+| Top-k retrieval | Learner-reported comparison at 2, 5 and 10 | Manual experiment completed |
+| Cache invalidation | Controlled ALPHA_417 → BETA_829 local test | Manual integration test passed |
+| Cache scope trade-off | Source inspection of global cache clears and session index | Explained; no concurrent-user load test |
+| Error handling | Source-based control-flow review | Taught; failure injection not systematically tested |
+| Security | Credential and prompt source inspection | Explained; no security audit |
+| Automated tests | Inspected repository tree and requirements | No test suite found in current tree |
+| Production load/scaling | Architecture and lifecycle analysis | Not load-tested |
+
+### 37.5 What production readiness would require
+
+Before treating RepoGPT as a robust multi-user production service, consider these areas:
+
+1. **Automated regression tests:** URL parsing, secret resolution, reader behavior, index construction, error paths and the cache invalidation scenario.
+2. **Version-aware caching:** use an immutable content version such as a commit SHA for both Documents and index identity. The current implementation uses global cache clears.
+3. **Resource and memory limits:** repository-size constraints, index lifecycle, old cache eviction and concurrent indexing behavior.
+4. **Persistence:** the vector index is in memory. A process restart requires repository indexing again. Persistent storage would change this lifecycle.
+5. **Security and data governance:** least-privilege credentials, controlled secret storage, clear disclosure that retrieved code is sent to Groq, and safe handling of untrusted repository content.
+6. **Observability and recovery:** useful structured logs, actionable errors, and deliberate handling of GitHub/Groq rate limits, timeouts and service failures.
+7. **Answer quality:** a representative evaluation set and source-grounded review of generated answers.
+
+These are improvement areas, not claims that the project currently implements them.
+
+### 37.6 Checkpoint
+
+1. Which test level is most appropriate for testing parse_github_url() with normal, branch-specific and invalid URLs?
+2. Which test level checks that GitHub ingestion, indexing and retrieval work together?
+3. Does the successful cache-marker test prove that RepoGPT has been load-tested for many simultaneous users?
+4. Why should retrieval evaluation check source relevance and factual support rather than only checking that the LLM returned a string?
+5. What is one limitation of importing parse_github_url() directly from the current main.py in a lightweight unit test?
 
 ---
 
