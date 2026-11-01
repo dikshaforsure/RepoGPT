@@ -2087,6 +2087,84 @@ Version-aware keys avoid clearing every user's cache on every re-index, but olde
 3. Why must the commit SHA be included in both the Documents cache identity and the vector-index cache identity?
 4. Why should the file reader fetch the exact snapshot corresponding to the SHA, rather than simply fetching the branch after looking up its SHA?
 
+
+### 34.17 Cache lifetime and size: `ttl` versus `max_entries`
+
+**Learner checkpoint result — passed (1 November 2026):** The learner correctly chose that, with version-aware keys, the old `AAA111` entries may remain while new `BBB222` entries are created. A new key causes a cache miss; it does not itself delete the old key's entry.
+
+The current `main.py` uses these decorators:
+
+~~~python
+@st.cache_resource(show_spinner=False)
+def get_embedding_model():
+    ...
+
+@st.cache_resource(show_spinner=False)
+def load_repository(github_token, owner, repo, branch):
+    ...
+
+@st.cache_resource(show_spinner=False)
+def build_index(_docs, groq_api_key, cache_key):
+    ...
+~~~
+
+The repository pins `streamlit==1.50.0`. In that version, `st.cache_resource` supports `ttl` and `max_entries`. When neither is supplied, both default to `None`: entries have no TTL expiration and the cache has no configured entry-count limit. See the [Streamlit 1.50.0 `st.cache_resource` reference](https://docs.streamlit.io/1.50.0/develop/api-reference/caching-and-state/st.cache_resource).
+
+#### A. `ttl` — time-to-live
+
+`ttl` is the maximum age of a cache entry. For example:
+
+~~~python
+@st.cache_resource(ttl=3600, show_spinner=False)
+def load_something(key):
+    ...
+~~~
+
+`3600` means 3,600 seconds (one hour). If the same cache key is requested after its entry has expired, Streamlit runs the function again and caches the newly returned result. TTL is not a background scheduler: an idle entry is not proactively refreshed at the exact expiry moment; a later access is what needs the value again.
+
+**RepoGPT implication:** Adding a TTL to `load_repository()` could limit how long a cached Documents result is reused. But adding TTL only to that function would not by itself guarantee a fresh vector index: `build_index()` has a separate cache and excludes `_docs` from its key. That second cache also needs an appropriate freshness/version strategy.
+
+#### B. `max_entries` — maximum number of cache entries
+
+For example:
+
+~~~python
+@st.cache_resource(max_entries=20, show_spinner=False)
+def load_something(key):
+    ...
+~~~
+
+This keeps at most 20 entries for that decorated function. When a new entry is added while the cache is full, the oldest cached entry is removed to make room.
+
+**Important:** This limits the number of entries, not the total memory size in bytes. One vector index may be much larger than another. It is a coarse bound, not a precise memory budget.
+
+**RepoGPT implication:** A maximum entry count could limit how many different repository/token/branch combinations remain cached, but it does not tell Streamlit which repository version is newest. It is not a replacement for a commit-SHA-based cache identity or explicit invalidation.
+
+#### C. Compare the three ideas
+
+| Mechanism | What it does | Does it guarantee the latest branch content immediately? |
+|---|---|---|
+| `ttl` | Expires an entry after its maximum age; a later access recomputes it | Not necessarily; content can change before TTL expires |
+| `max_entries` | Removes an old entry when the entry-count limit is reached | No; it limits count, not freshness |
+| Commit-SHA cache key | Gives each exact repository version a different identity | Yes, when the app resolves the current SHA and fetches that exact snapshot |
+| `.clear()` | Explicitly removes cached entries for a function (all entries when called without arguments) | Forces a fresh execution on the next call, assuming it succeeds |
+
+A robust system may combine these: version-aware keys for correctness, plus TTL/entry limits for cache lifecycle and memory management.
+
+#### D. What applies to the current RepoGPT code?
+
+- `get_embedding_model()` has no TTL or entry-count limit. It loads a reusable model; keeping it cached avoids repeated model loading.
+- `load_repository()` has no TTL or entry-count limit. Without the explicit clear in `index_repository()`, cached Documents can remain indefinitely for a matching key.
+- `build_index()` has no TTL or entry-count limit. Its `_docs` parameter is excluded from the key, so a matching cache entry can remain indefinitely unless cleared, evicted, or the cache/function identity changes.
+- The current manual fix clears the repository-reader and index caches on every explicit re-index. The embedding-model cache is deliberately retained.
+
+Do not add arbitrary TTL or `max_entries` values without measuring repository sizes, usage patterns, indexing cost and memory consumption. The correct values depend on deployment behavior.
+
+**Checkpoint:**
+1. If `ttl=3600`, does Streamlit proactively rebuild an unused entry exactly one hour later, without anyone calling the function?
+2. If `max_entries=10`, does that guarantee the cache uses less than a fixed number of megabytes?
+3. If only `load_repository()` gets a TTL but `build_index()` keeps its old matching cache entry, is that alone enough to guarantee a new vector index?
+
 ---
 
 ## Source references
