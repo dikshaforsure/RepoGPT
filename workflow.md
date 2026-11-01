@@ -2010,7 +2010,78 @@ Example with two users:
 
 A more targeted design would include a repository content version (such as the branch's commit SHA) in the cache key, and invalidate or naturally miss only the entry for the changed version. The current patch does not implement that targeted strategy.
 
-**Checkpoint:** If User B re-indexes a different repository, does that automatically erase User A's current `st.session_state.index`? Explain the difference between clearing a cached function's entries and clearing an object reference already stored in session state.
+**Checkpoint result — passed (learner response, 1 November 2026):** The learner correctly answered that User B's cache clear does not automatically erase User A's current `st.session_state.index`. Clearing a cached function's entries and clearing an index reference already stored in another session are different operations.
+
+
+### 34.16 Designing version-aware cache keys
+
+The current fix uses broad cache clearing. A more selective design is to make the repository's **content version** part of the cache key.
+
+#### Why a branch name is not enough
+
+A branch such as `main` is a movable reference. Its name can stay `main` while new commits change the files it points to. A commit SHA identifies a particular commit snapshot. Therefore:
+
+- Same repository + same branch + same commit SHA means the branch content version has not changed.
+- Same repository + same branch + a different commit SHA means the branch has advanced to a different version.
+
+#### Conceptual flow
+
+~~~mermaid
+flowchart TD
+    A[User clicks Index repository] --> B[Ask GitHub for branch HEAD commit SHA]
+    B --> C[Build repository-version key]
+    C --> D{Matching Documents cached?}
+    D -- Yes --> E[Reuse Documents for that version]
+    D -- No --> F[Fetch that exact repository snapshot]
+    F --> G[Cache Documents under version key]
+    E --> H{Matching vector index cached?}
+    G --> H
+    H -- Yes --> I[Reuse index for that version]
+    H -- No --> J[Build and cache a new index]
+    I --> K[Save active index in this user's session]
+    J --> K
+~~~
+
+#### What the key could look like
+
+For example, the same branch can have two different version keys:
+
+~~~text
+dikshaforsure/RepoGPT@main:COMMIT_A
+dikshaforsure/RepoGPT@main:COMMIT_B
+~~~
+
+The repository identity and branch are still useful for display and organization, but the commit SHA distinguishes the actual content version.
+
+At a high level, the flow would be:
+
+1. Resolve the selected branch's latest commit SHA from GitHub.
+2. Pass that version identifier as a real input to the repository-document cache.
+3. Include the same version identifier in the vector-index cache key.
+4. Reuse the cached Documents/index when the commit SHA is unchanged; use a new cache key when it changes.
+5. Store the resulting index in the current user's session state.
+
+#### Why both cache layers need the version
+
+The current `load_repository()` cache key uses the GitHub token, owner, repository and branch. It does not include the remote branch's current commit SHA. So a cache hit can return old Documents.
+
+The current `build_index(_docs, groq_api_key, cache_key)` excludes `_docs` from hashing because its name starts with an underscore. The caller's `cache_key` currently contains only owner/repository/branch. Therefore the index cache also needs a content-version identifier; otherwise a new Documents object could still map to the old index key.
+
+#### Important correctness detail: fetch the same snapshot you keyed
+
+It is not enough to read commit SHA A and then fetch the moving branch name if that branch might advance to commit B between those operations. A robust implementation should ensure the reader fetches the exact immutable snapshot represented by the SHA used in the cache key. This avoids storing B's Documents under A's cache key.
+
+#### Cache memory still needs a lifecycle
+
+Version-aware keys avoid clearing every user's cache on every re-index, but older commit-version entries can remain cached. A production design should also choose an appropriate TTL, maximum number of entries, or other eviction policy so old repository versions do not accumulate indefinitely.
+
+**Implementation status:** This is a design lesson only. The merged `main` branch still uses the simple global `.clear()` calls from Section 34.14. No commit-SHA-based cache design has been implemented or tested.
+
+**Checkpoint:**
+1. Why can the branch name `main` stay the same while the repository contents change?
+2. What does a commit SHA add to a cache key?
+3. Why must the commit SHA be included in both the Documents cache identity and the vector-index cache identity?
+4. Why should the file reader fetch the exact snapshot corresponding to the SHA, rather than simply fetching the branch after looking up its SHA?
 
 ---
 
