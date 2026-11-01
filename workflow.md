@@ -1970,9 +1970,17 @@ The calls run after required-input validation and URL parsing, and before GitHub
 - A local Python syntax/control-flow check of the modified `index_repository()` function snippet passed: both cache clears occur before repository loading and index building, and successful indexing still updates the same session-state fields and calls rerun.
 - GitHub code search returned no `pytest`, `unittest` or matching index-function tests; the commit has no reported CI statuses or workflow runs.
 
-**Not yet verified:** The full deployed Streamlit application has not been run against a live GitHub repository after this change. The repository has no discovered automated test covering cache invalidation. Treat the patch as implemented and locally control-flow checked, but still requiring a deployed/manual re-index test before merging into `main`.
+**Manual integration test completed locally (learner-reported, 1 November 2026):** The full Streamlit application was run from a local checkout of `fix/cache-invalidation` on port 8504 and tested against a user-owned GitHub repository and a dedicated branch named `cache-invalidation-demo`. A marker in `README.md` was used so the indexed repository version could be identified exactly.
 
-**Manual validation after deployment or local checkout:** index a repository, change a supported file on the same GitHub branch, click Index repository again, then ask a question whose answer depends on the changed code. Confirm that the answer reflects the new content and that unchanged features still work. Do not merge this branch into `main` until that check succeeds.
+| Test | Action | Learner-reported result | Status |
+|---|---|---|---|
+| Initial indexing | Commit `CACHE_TEST_MARKER = ALPHA_417`, index the branch, and ask for the marker value | Returned `ALPHA_417` | Passed |
+| No re-index | Change the committed marker to `BETA_829` on the same branch, but do not click Index repository; ask the same question | Still returned `ALPHA_417` | Passed |
+| Re-index | Click Index repository again with the same repository URL, branch and credentials; ask the same question | Returned `BETA_829` | Passed |
+
+The learner reported no errors or unexpected results. This controlled test demonstrates the intended behavior in the local app: the active session keeps using its existing index until an explicit re-index, and the re-index path then fetches and indexes the updated repository content.
+
+**Remaining verification limits:** The result is learner-reported and was not independently observed by the maintainer. This test does not establish behavior under simultaneous multi-user load, network/API failure, or on the deployed Streamlit Community Cloud app. No automated test suite covering this behavior was discovered. The patch passed the reported local manual integration test, but production deployment and multi-session effects remain separate checks.
 ---
 
 ## Source references
